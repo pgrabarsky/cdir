@@ -1,0 +1,34 @@
+appenders:
+
+  stdout:
+    kind: console
+    encoder: # https://docs.rs/log4rs/latest/log4rs/encode/pattern/index.html#formatters
+      pattern: "{h({d(%Y-%m-%d %H:%M:%S%.3f)} [{T}:{I}] {({l}):5.5} {f}:{L} — {m}{n})}"
+
+  file:
+    kind: rolling_file
+    path: "__DATA_PATH__/cdir.log"
+    encoder:
+      pattern: "{h({d(%Y-%m-%d %H:%M:%S%.3f)} [{T}:{I}] {({l}):5.5} {f}:{L} — {m}{n})}"
+    policy:
+      trigger:
+        kind: size
+        limit: 100kb
+      roller:
+        kind: fixed_window
+        base: 1
+        count: 5
+        pattern: "__DATA_PATH__/cdir_{}.log"
+
+root:
+  level: trace
+  appenders:
+#    - stdout
+    - file
+
+loggers:
+  app::cdir:
+    level: trace
+    appenders:
+      - file
+    additive: false

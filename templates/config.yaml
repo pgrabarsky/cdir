@@ -1,0 +1,16 @@
+# Path to the sqlite file storing the data
+db_path: __DATA_PATH__/cdir.db
+
+# Path to the log configuration file
+log_config_path: __CONFIG_PATH__/log4rs.yaml
+
+# Custom date format (see: https://docs.rs/chrono/0.4.38/chrono/format/strftime/index.html)
+# date_format: "%d-%b-%y %H:%M"
+
+# Uncomment if using dark theme:
+#colors:
+#  date: "#80c0ff"
+#  path: "#ffffff"
+#  shortcut_name: "#70eeb0"
+## optionally the highlight color can also be changed:
+##  highlight: "#c0f0ff"
