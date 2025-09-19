@@ -1,6 +1,7 @@
 mod config;
 mod expimp;
 mod gui;
+mod help;
 mod model;
 mod store;
 mod tableview;

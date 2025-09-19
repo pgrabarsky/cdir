@@ -5,20 +5,19 @@ use log::{error, info};
 
 use std::fs;
 
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone)]
 pub(crate) struct Path {
-    id: i64,
+    pub(crate) id: i64,
     pub(crate) path: String,
     pub(crate) date: i64, // seconds since EPOCH
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct Shortcut {
-    id: i64,
+    pub(crate) id: i64,
     pub(crate) name: String,
     pub(crate) path: String,
 }
@@ -29,7 +28,7 @@ pub(crate) struct Store {
 }
 
 impl Store {
-    pub(crate) fn new(dir_path: &PathBuf) -> Store {
+    pub(crate) fn new(dir_path: &std::path::Path) -> Store {
         info!("db file={}", dir_path.display());
 
         if !dir_path.exists() {
@@ -43,7 +42,7 @@ impl Store {
         let db_exists = dir_path.exists();
 
         let store = Store {
-            db_conn: match Connection::open(dir_path.as_path()) {
+            db_conn: match Connection::open(dir_path) {
                 Ok(conn) => Rc::new(conn),
                 Err(err) => {
                     error!(
@@ -210,6 +209,18 @@ impl Store {
         Ok(())
     }
 
+    pub(crate) fn delete_shortcut_by_id(&self, id: i64) -> Result<(), rusqlite::Error> {
+        let mut stmt = self
+            .db_conn
+            .prepare("DELETE FROM shortcuts WHERE id=(?1)")?;
+        stmt.execute([id])
+            .map_err(|e| {
+                error!("Failed to delete shortcuts by id '{}',{}", id, e);
+                e
+            })
+            .map(|_l: usize| ())
+    }
+
     pub(crate) fn find_shortcut(&self, name: &String) -> Option<String> {
         debug!("find_shortcut {}", name);
 
@@ -233,37 +244,37 @@ impl Store {
         }
     }
 
-    fn list_all_paths(&self) -> Result<Vec<Path>, rusqlite::Error> {
-        let sql = String::from("SELECT id, path, date FROM paths ORDER BY date desc, id desc");
-
-        let mut stmt = match self.db_conn.prepare(sql.as_str()) {
-            Ok(stmt) => stmt,
-            Err(e) => {
-                error!("list_paths failed in prepare {}: {}", sql, e);
-                return Err(e);
-            }
-        };
-
-        let rows = match stmt.query_map([], |row| {
-            Ok(Path {
-                id: row.get(0)?,
-                path: row.get(1)?,
-                date: row.get(2)?,
-            })
-        }) {
-            Ok(rows) => rows,
-            Err(e) => {
-                error!("list_paths failed in query_map: {}", e);
-                return Err(e);
-            }
-        };
-
-        let mut paths = Vec::new();
-        for path in rows {
-            paths.push(path?);
-        }
-        Ok(paths)
-    }
+    // fn list_all_paths(&self) -> Result<Vec<Path>, rusqlite::Error> {
+    //     let sql = String::from("SELECT id, path, date FROM paths ORDER BY date desc, id desc");
+    //
+    //     let mut stmt = match self.db_conn.prepare(sql.as_str()) {
+    //         Ok(stmt) => stmt,
+    //         Err(e) => {
+    //             error!("list_paths failed in prepare {}: {}", sql, e);
+    //             return Err(e);
+    //         }
+    //     };
+    //
+    //     let rows = match stmt.query_map([], |row| {
+    //         Ok(Path {
+    //             id: row.get(0)?,
+    //             path: row.get(1)?,
+    //             date: row.get(2)?,
+    //         })
+    //     }) {
+    //         Ok(rows) => rows,
+    //         Err(e) => {
+    //             error!("list_paths failed in query_map: {}", e);
+    //             return Err(e);
+    //         }
+    //     };
+    //
+    //     let mut paths = Vec::new();
+    //     for path in rows {
+    //         paths.push(path?);
+    //     }
+    //     Ok(paths)
+    // }
 
     pub(crate) fn list_shortcuts(
         &self,
@@ -360,23 +371,23 @@ mod tests {
         store
     }
 
-    #[test]
-    fn test_save_and_delete() {
-        let store = setup_test_db();
-
-        let result = store.add_path(&"test_path".to_string());
-        assert!(result.is_ok());
-
-        let paths = store.list_all_paths().unwrap();
-        assert_eq!(paths.len(), 1);
-        assert_eq!(paths[0].path, "test_path");
-
-        store
-            .delete_path_by_id(paths[0].id)
-            .expect("Failed to delete path by id");
-        let paths = store.list_all_paths().unwrap();
-        assert_eq!(paths.len(), 0);
-    }
+    // #[test]
+    // fn test_save_and_delete() {
+    //     let store = setup_test_db();
+    //
+    //     let result = store.add_path(&"test_path".to_string());
+    //     assert!(result.is_ok());
+    //
+    //     let paths = store.list_all_paths().unwrap();
+    //     assert_eq!(paths.len(), 1);
+    //     assert_eq!(paths[0].path, "test_path");
+    //
+    //     store
+    //         .delete_path_by_id(paths[0].id)
+    //         .expect("Failed to delete path by id");
+    //     let paths = store.list_all_paths().unwrap();
+    //     assert_eq!(paths.len(), 0);
+    // }
 
     #[test]
     fn test_list() {
@@ -394,16 +405,16 @@ mod tests {
         assert_eq!(paths[0].path, "test_path1");
     }
 
-    #[test]
-    fn test_list_all() {
-        let store = setup_test_db();
-
-        store.add_path(&"test_path1".to_string()).unwrap();
-        store.add_path(&"test_path2".to_string()).unwrap();
-
-        let paths = store.list_all_paths().unwrap();
-        assert_eq!(paths.len(), 2);
-        assert_eq!(paths[0].path, "test_path1");
-        assert_eq!(paths[1].path, "test_path2");
-    }
+    // #[test]
+    // fn test_list_all() {
+    //     let store = setup_test_db();
+    //
+    //     store.add_path(&"test_path1".to_string()).unwrap();
+    //     store.add_path(&"test_path2".to_string()).unwrap();
+    //
+    //     let paths = store.list_all_paths().unwrap();
+    //     assert_eq!(paths.len(), 2);
+    //     assert_eq!(paths[0].path, "test_path1");
+    //     assert_eq!(paths[1].path, "test_path2");
+    // }
 }

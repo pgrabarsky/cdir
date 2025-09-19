@@ -40,9 +40,14 @@ pub enum GuiResult {
     Quit,
     Print(String),
     Next,
+    Help,
 }
 
+/// A function type that converts a vector of items of type T into a vector of table rows.
 pub type RowifyFn<'store, T> = Box<dyn Fn(&Vec<T>) -> Vec<Row> + 'store>;
+
+/// A function type that deletes an item of type T into the store
+pub type DeleteFn<'store, T> = Box<dyn Fn(&T) + 'store>;
 
 /// A generic table view for displaying data in a tabular format within the GUI.
 pub struct TableView<'store, T: Clone, S> {
@@ -55,6 +60,7 @@ pub struct TableView<'store, T: Clone, S> {
     search_string: String,
     colors: Colors,
     view_state: Rc<RefCell<S>>,
+    delete_fn: DeleteFn<'store, T>,
 }
 
 impl<'store, T: Clone> TableView<'store, T, bool> {
@@ -65,6 +71,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
         stringify: fn(&T) -> String,
         config: &Config,
         view_state: Rc<RefCell<bool>>,
+        delete_fn: DeleteFn<'store, T>,
     ) -> Self {
         TableView {
             data_model: DataViewModel::new(list_fn),
@@ -76,12 +83,13 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             search_string: String::new(),
             colors: config.colors.clone(),
             view_state,
+            delete_fn,
         }
     }
 
     fn selected_row(&self) -> Option<usize> {
         let selected = self.table_state.selected_cell();
-        selected.map(|pos| (pos.0))
+        selected.map(|pos| pos.0)
     }
 
     /// Run the application.
@@ -144,10 +152,15 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
                             } else {
                                 match c {
                                     'q' => break GuiResult::Quit,
+                                    'h' => {
+                                        debug!("Help");
+                                        break GuiResult::Help;
+                                    }
                                     'a' => {
                                         let s = *self.view_state.borrow();
                                         *self.view_state.borrow_mut() = !s
                                     }
+                                    'd' => self.handle_delete(),
                                     _ => {}
                                 }
                             }
@@ -176,7 +189,6 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
         debug!("handle_chosen");
         if let Some(items) = &self.data_model.entries {
             let current_row = self.selected_row();
-            // TODO
             current_row.map(|row| (self.stringify)(&items[row]))
         } else {
             warn!("No data!");
@@ -252,6 +264,15 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
         }
     }
 
+    fn handle_delete(&mut self) {
+        debug!("handle_delete");
+        if let Some(items) = &self.data_model.entries {
+            let current_row = self.selected_row();
+            (self.delete_fn)(&items[current_row.unwrap()]);
+            self.data_model.reload();
+        }
+    }
+
     fn draw(&mut self, frame: &mut Frame) {
         let vertical = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).spacing(0);
         let [main, input] = vertical.areas(frame.area());
@@ -275,17 +296,16 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             .style(Style::default().fg(self.colors.path.parse::<Color>().unwrap()));
         frame.render_widget(pa, left);
 
-        let pb;
-        if self.data_model.length > 0 {
-            pb = Paragraph::new("")
+        let pb = if self.data_model.length > 0 {
+            Paragraph::new("")
                 .style(Style::default().fg(Color::Black))
-                .alignment(Alignment::Center);
+                .alignment(Alignment::Center)
         } else {
-            pb = Paragraph::new("no entry")
+            Paragraph::new("no entry")
                 .style(Style::default().fg(Color::Black))
                 .bg(Color::Red)
-                .alignment(Alignment::Center);
-        }
+                .alignment(Alignment::Center)
+        };
 
         frame.render_widget(pb, right);
     }

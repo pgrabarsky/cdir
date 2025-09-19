@@ -32,7 +32,7 @@ pub(crate) type ListFunction<'store, T> =
 /// - `filter`: A string used to filter the entries based on some criteria.
 pub(crate) struct DataViewModel<'store, T> {
     pub(crate) entries: Option<Vec<T>>,
-    list_fn: Box<ListFunction<'store, T>>,
+    pub(crate) list_fn: Box<ListFunction<'store, T>>,
     pub(crate) first: usize,
     pub(crate) length: u16,
     filter: String,
@@ -176,5 +176,27 @@ impl<'store, T: Clone> DataViewModel<'store, T> {
         };
         trace!("update_data_pos self.first={} first={}", self.first, first);
         self.update(first, length, text, false)
+    }
+
+    pub(crate) fn reload(&mut self) {
+        let new_entries: Result<Vec<T>, rusqlite::Error> =
+            (self.list_fn)(self.first, self.length as usize, self.filter.as_str());
+        match new_entries {
+            Ok(new_entries) => {
+                let new_length = new_entries.len();
+                if new_length > 0 {
+                    self.entries = Some(new_entries);
+                    self.length = new_length as u16;
+                    trace!("Updated");
+                } else {
+                    debug!("No data found");
+                    self.entries = Option::None;
+                    self.length = 0;
+                }
+            }
+            Err(err) => {
+                debug!("No data found {}", err);
+            }
+        }
     }
 }

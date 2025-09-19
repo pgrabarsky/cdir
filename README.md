@@ -1,11 +1,12 @@
 # cdir
 
-cdir is a command-line tool that allows you to quickly navigate to directories in your terminal.
+cdir allows you to quickly navigate to a directory recorded into your history.
 
-It records your directory history and provides a simple interface to jump back to previously visited directories using a
-GUI.
-It also supports creating shortcuts for frequently used directories.
-And it supports text search.
+When you use the `cd` command in your terminal, `cdir` records the directory into its database.
+Then you can use the graphical user interface to go back to it later.
+The GUI has text filtering capabilities, and it shows the date of the last time you went to it.
+
+cdir also supports creating shortcuts for frequently used directories.
 
 <p align="center">
   <img src="doc/demo.gif" alt="animated" />
@@ -24,7 +25,7 @@ And it supports text search.
 
 ## Commands
 
-There are two main commands:
+There are three main commands from the terminal:
 
 Open the cdir ui:
 
@@ -44,24 +45,65 @@ You can also use the `c` command to go directly to a directory by using a shortc
 $ c myshortcut
 ```
 
+Some additional features are available using the `cdir` command:
+
+```
+$ cdir --help
+cdir helps you to switch quickly and easily between directories
+
+Usage: cdir [OPTIONS] [COMMAND]
+
+Commands:
+  gui               Launch the GUI
+  config-file       Print the path to the configuration file
+  create-schema     Create the schema into the DB
+  add-path          Add a directory path
+  import-paths      Import a path file
+  add-shortcut      Add a shortcut
+  delete-shortcut   Delete a shortcut
+  print-shortcut    Print a shortcut
+  import-shortcuts  Import a shortcuts file
+  lasts             Print last paths
+  help              Print this message or the help of the given subcommand(s)
+
+Options:
+  -c, --config-file <CONFIG_FILE>  Path to the configuration file
+  -h, --help                       Print help
+  -V, --version                    Print version
+```
+
 ## Navigating the UI
 
-You can navigate through your directory history using the following keys:
+You can open the UI by typing `c` in your terminal.
 
-* The `up` and `down` arrow keys (`shift` for bigger jumps);
+There are three views:
 
-* The `page up` and `page down` to scroll through the list;
+* The directory history view, which shows the list of previously visited directories, sorted by most recent visit. It
+  also shows the date of the last visit.
 
-* Use `Home` to go to the most recent directory in the history;
+* The shortcuts view, which shows the list of defined shortcuts.
 
-* Use `Enter` to actually 'cd' into the directory;
+* The help view, which shows the available commands.
 
-* Use `Esc` to exit.
+Use `tab` to switch between the two first views, and `ctrl + h` to go to the help view.
 
-Press `Tab` to switch between the directory history and shortcuts views.
-The navigation is the name into the shortcut view.
+Then you can navigate using the following keys:
 
-You can type any text to filter the directory history or shortcuts.
+* Use `enter` to exit the GUI and go into the selected directory;
+
+* Use `esc` ot `ctrl + q` to simply exit and stay in the current directory;
+
+* Use the `up` and `down` arrow keys to select a directory (`shift` for bigger jumps);
+
+* Use `page up` and `page down` to scroll through the list by page;
+
+* Use `home` to go to the most recent directory in the history (the top);
+
+* Use `ctrl + a` to see the full directory path in the directory history view.
+
+* Use `ctrl + d` to delete the selected entry.
+
+You can type a free text to filter the directory history or shortcuts.
 
 Tip: You can use `ctrl+a` to see the full directory path in the directory history view.
 
