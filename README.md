@@ -114,7 +114,9 @@ Download the latest release from the [releases page](https://github.com/to_defin
 Next, extract the archive, run the `install.sh` script located in the extracted directory, and follow the on-screen
 instructions.
 
-## Customization
+## Configuration
+
+### Path to the configuration file
 
 Several aspects of `cdir` can be customized to fit your needs.
 You can report to the configuration file for the available options.
@@ -123,6 +125,8 @@ The path to the configuration file can be found using:
 ```aiignore
 $ cdir config-file
 ```
+
+### Colors
 
 Colors are customizable, which is mandatory if you use a dark terminal theme.
 
@@ -135,11 +139,48 @@ colors:
   shortcut_name: "#70eeb0"
 ```
 
-## Going further
+The available options are:
 
-Using directly the `cdir` cli provides more features, such as importing shortcuts for a file:
+* `date`: the color of the date in the directory history view
 
-To do so, you need to have a YAML file with a list of shortcuts defined by a `name` and a `path`.
+* `path`: the color of the path in the directory history view
+
+* `shortcut_name`: the color of the shortcut name
+
+* `highlight`: the color of the highlighting for directory selection
+
+* `header_fg`: the color of the header foreground
+
+* `header_bg`: the color of the header background
+
+### Date format
+
+The date format can be customized using the `date_format` option in the configuration file.
+Report to [the chrono package doc](https://docs.rs/chrono/0.4.38/chrono/format/strftime/index.html) for the formating
+options.
+
+```yaml
+date_format: "%d-%b-%y %H:%M" 
+```
+
+### Path to the database
+
+The path to the database can be set using the `db_path` option in the configuration file.
+Beware that it should include the filename, for instance:
+
+```yaml
+db_path: "/home/user/.local/share/cdir/development.db"
+```
+
+### Path to the log configuration file
+
+The path to the log configuration file can be set using the `log_config_path` option in the configuration file.
+
+## Importing shortcuts
+
+cdir supports importing shortcuts for a YAML file:
+
+To do so, the file should contain the list of shortcuts defined by a `name` and a `path`.
 
 Example:
 
@@ -160,6 +201,15 @@ You can also delete a shortcut using the `cdir delete-shortcut` command:
 ```
 $ cdir delete-shortcut myshortcut
 ```
+
+## Logging
+
+By default, cdir logs are configured in a file name `log4rs.yaml` located in the same directory as the configuration
+file.
+It can be adjusted, noticeably to change the log level.
+
+cdir uses the [log4rs](https://docs.rs/log4rs/latest/log4rs/) crate for logging.
+The documentation for the file configuration is [here](https://docs.rs/log4rs/latest/log4rs/#configuration).
 
 ## License
 

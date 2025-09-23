@@ -13,4 +13,4 @@ log_config_path: __CONFIG_PATH__/log4rs.yaml
 #  path: "#ffffff"
 #  shortcut_name: "#70eeb0"
 ## optionally the highlight color can also be changed:
-##  highlight: "#90eeff"
+##  highlight: "#c0f0ff"

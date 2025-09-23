@@ -21,7 +21,7 @@ const DEFAULT_LOG_CONFIG_PATH: fn() -> Option<PathBuf> = || {
     Some(path)
 };
 
-const DEFAULT_DATE_FORMAT: fn() -> String = || String::from("%Y/%m/%d %H:%M:%S");
+const DEFAULT_DATE_FORMAT: fn() -> String = || String::from("%d-%b-%y %H:%M:%S");
 
 const DEFAULT_COLORS: fn() -> Colors = || serde_yaml::from_str("").unwrap();
 

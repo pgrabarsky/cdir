@@ -17,8 +17,11 @@ const JUMP_OFFSET: usize = 10;
 
 const DEFAULT_COLOR_DATE: fn() -> String = || String::from("#000080");
 const DEFAULT_COLOR_PATH: fn() -> String = || String::from("#000000");
-const DEFAULT_COLOR_HIGHLIGHT: fn() -> String = || String::from("#FFDD51");
+const DEFAULT_COLOR_HIGHLIGHT: fn() -> String = || String::from("#ffe680");
 const DEFAULT_COLOR_SHORTCUT_NAME: fn() -> String = || String::from("Green");
+
+const DEFAULT_COLOR_FG_HEADER: fn() -> String = || String::from("White");
+const DEFAULT_COLOR_BG_HEADER: fn() -> String = || String::from("#1f2d6c");
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub struct Colors {
@@ -33,6 +36,12 @@ pub struct Colors {
 
     #[serde(default = "DEFAULT_COLOR_SHORTCUT_NAME")]
     pub shortcut_name: String,
+
+    #[serde(default = "DEFAULT_COLOR_FG_HEADER")]
+    pub header_fg: String,
+
+    #[serde(default = "DEFAULT_COLOR_BG_HEADER")]
+    pub header_bg: String,
 }
 
 /// Represents the possible results of a GUI action.
@@ -324,13 +333,12 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             .map_or(vec![], |entries| (self.rowify)(entries));
 
         let widths = [Constraint::Length(20), Constraint::Fill(1)];
-
         let table = Table::new(rows, widths)
             .header(
                 Row::new(self.column_names.clone()).style(
                     Style::new()
-                        .fg(Color::White)
-                        .bg(Color::Rgb(0, 0x33, 0x66))
+                        .fg(self.colors.header_fg.parse().unwrap())
+                        .bg(self.colors.header_bg.parse().unwrap())
                         .bold(),
                 ),
             )
