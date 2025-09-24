@@ -10,6 +10,9 @@ struct Path {
     path: String,
 }
 
+/// Load paths from a YAML file and add them to the store.
+/// The YAML file should contain a list of objects with `date` and `path` fields.
+/// The `date` field should be a string representing a UNIX timestamp in seconds.
 pub(crate) fn load_paths_from_yaml(store: Store, yaml_file: PathBuf) {
     if !yaml_file.exists() {
         error!("File {} does not exist", yaml_file.display());

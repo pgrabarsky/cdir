@@ -66,7 +66,7 @@ impl<'store, T: Clone> DataViewModel<'store, T> {
     /// ### Returns
     /// `true` if the current data view is a subset of the specified range and filter;
     /// otherwise, `false`.
-    pub(crate) fn is_a_subset_of(&mut self, first: usize, length: u16, text: &str) -> bool {
+    fn is_a_subset_of(&mut self, first: usize, length: u16, text: &str) -> bool {
         self.entries.is_some()
             && (first >= self.first)
             && (first + length as usize <= self.first + self.length as usize)
@@ -99,11 +99,14 @@ impl<'store, T: Clone> DataViewModel<'store, T> {
     /// Updates the data view with new entries based on the specified range and filter.
     /// If the requested range is already a subset of the current data, no update occurs.
     ///
+    /// If the range [first, first + length] exceeds the available data or if the result
+    /// is a subset of the current view, the update is not performed.
+    ///
     /// ### Parameters
     /// - `first`: The starting index of the range.
     /// - `length`: The length of the range.
     /// - `text`: The filter text.
-    /// - `force`: A boolean indicating whether to force the update even if no data is found.
+    /// - `force`: A boolean indicating whether to force the update even if no data is found (if not a subset of the current view).
     ///
     /// ### Returns
     /// `true` if the data view was updated; otherwise, `false`.
@@ -178,6 +181,8 @@ impl<'store, T: Clone> DataViewModel<'store, T> {
         self.update(first, length, text, false)
     }
 
+    /// Reloads the current data view by fetching new entries based on the existing
+    /// starting index, length, and filter.
     pub(crate) fn reload(&mut self) {
         let new_entries: Result<Vec<T>, rusqlite::Error> =
             (self.list_fn)(self.first, self.length as usize, self.filter.as_str());
@@ -198,5 +203,81 @@ impl<'store, T: Clone> DataViewModel<'store, T> {
                 debug!("No data found {}", err);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::model::DataViewModel;
+    use crate::store::Store;
+
+    #[test]
+    fn test_scroll() {
+        let store = Store::setup_test_store();
+        store.add_path(&"/5".to_string()).unwrap();
+        store.add_path(&"/4".to_string()).unwrap();
+        store.add_path(&"/3".to_string()).unwrap();
+        store.add_path(&"/2".to_string()).unwrap();
+        store.add_path(&"/1".to_string()).unwrap();
+
+        let mut model =
+            DataViewModel::new(Box::new(|pos, len, text| store.list_paths(pos, len, text)));
+        assert!(model.entries.is_none());
+
+        model.update(0, 2, "", false);
+        assert_eq!(model.first, 0);
+        assert_eq!(model.entries.as_ref().unwrap().len(), 2);
+        assert_eq!(model.entries.as_ref().unwrap()[0].path, "/1");
+        assert_eq!(model.entries.as_ref().unwrap()[1].path, "/2");
+
+        model.update(1, 2, "", false);
+        assert_eq!(model.first, 1);
+        assert_eq!(model.entries.as_ref().unwrap().len(), 2);
+        assert_eq!(model.entries.as_ref().unwrap()[0].path, "/2");
+        assert_eq!(model.entries.as_ref().unwrap()[1].path, "/3");
+
+        model.update(2, 2, "", false);
+        assert_eq!(model.first, 2);
+        assert_eq!(model.entries.as_ref().unwrap().len(), 2);
+        assert_eq!(model.entries.as_ref().unwrap()[0].path, "/3");
+        assert_eq!(model.entries.as_ref().unwrap()[1].path, "/4");
+
+        model.update(3, 2, "", false);
+        assert_eq!(model.first, 3);
+        assert_eq!(model.entries.as_ref().unwrap().len(), 2);
+        assert_eq!(model.entries.as_ref().unwrap()[0].path, "/4");
+        assert_eq!(model.entries.as_ref().unwrap()[1].path, "/5");
+
+        // The model won't update as it would only remain ["/5"] which is a subset of the current view
+        model.update(4, 2, "", false);
+        assert_eq!(model.first, 3);
+        assert_eq!(model.entries.as_ref().unwrap().len(), 2);
+        assert_eq!(model.entries.as_ref().unwrap()[0].path, "/4");
+        assert_eq!(model.entries.as_ref().unwrap()[1].path, "/5");
+
+        // The model won't update as it would only remain []
+        model.update(5, 2, "", false);
+        assert_eq!(model.entries.as_ref().unwrap().len(), 2);
+        assert_eq!(model.entries.as_ref().unwrap()[0].path, "/4");
+        assert_eq!(model.entries.as_ref().unwrap()[1].path, "/5");
+
+        // Scroll back to 2
+        model.update(2, 2, "", false);
+        assert_eq!(model.first, 2);
+        assert_eq!(model.entries.as_ref().unwrap().len(), 2);
+        assert_eq!(model.entries.as_ref().unwrap()[0].path, "/3");
+        assert_eq!(model.entries.as_ref().unwrap()[1].path, "/4");
+
+        // The model will update as ["/5"] is not a subset of the current view
+        model.update(4, 2, "", false);
+        assert_eq!(model.first, 4);
+        assert_eq!(model.entries.as_ref().unwrap().len(), 1);
+        assert_eq!(model.entries.as_ref().unwrap()[0].path, "/5");
+
+        // The model won't update as it would only remain []
+        model.update(5, 2, "", false);
+        assert_eq!(model.first, 4);
+        assert_eq!(model.entries.as_ref().unwrap().len(), 1);
+        assert_eq!(model.entries.as_ref().unwrap()[0].path, "/5");
     }
 }

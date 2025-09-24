@@ -35,8 +35,6 @@ enum Commands {
     Gui { filename: Option<String> },
     /// Print the path to the configuration file
     ConfigFile,
-    /// Create the schema into the DB
-    CreateSchema,
     /// Add a directory path
     AddPath { path: String },
     /// Import a path file
@@ -136,9 +134,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             let list = store.list_paths(0, 10, "").unwrap();
             list.iter()
                 .for_each(|s| println!("{} {}", (config.date_formater)(s.date), s.path));
-        }
-        Some(Commands::CreateSchema) => {
-            store.init_schema();
         }
         None => {}
     }

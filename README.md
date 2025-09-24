@@ -56,7 +56,6 @@ Usage: cdir [OPTIONS] [COMMAND]
 Commands:
   gui               Launch the GUI
   config-file       Print the path to the configuration file
-  create-schema     Create the schema into the DB
   add-path          Add a directory path
   import-paths      Import a path file
   add-shortcut      Add a shortcut
