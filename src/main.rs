@@ -61,11 +61,11 @@ fn initialize_logs(config_path: &Option<PathBuf>) {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
-    let config = match Config::load(&args.config_file) {
+    let config = match Config::load(args.config_file.clone()) {
         Ok(config) => config,
         Err(e) => {
             error!("{}", e);
-            return Err(Box::new(e));
+            return Err(Box::<dyn Error>::from(e));
         }
     };
     initialize_logs(&config.log_config_path);
@@ -135,7 +135,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             list.iter()
                 .for_each(|s| println!("{} {}", (config.date_formater)(s.date), s.path));
         }
-        None => {}
+        None => {
+            println!("Use the 'c' shell alias to launch the GUI.");
+            println!("Use --help to see available commands.");
+            println!("Documentation is available at https://github.com/AmadeusITGroup/cdir");
+        }
     }
 
     Ok(())
