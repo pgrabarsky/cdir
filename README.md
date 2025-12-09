@@ -108,10 +108,60 @@ Tip: You can use `ctrl+a` to see the full directory path in the directory histor
 
 ## Installation
 
-Download the latest release from the [releases page](https://github.com/to_define/cdir/releases).
+### 1. Download the tarball
 
-Next, extract the archive, run the `install.sh` script located in the extracted directory, and follow the on-screen
+Download the latest release matching your architecture from
+the [releases page](https://github.com/AmadeusITGroup/cdir/releases).
+
+Next, extract the archive, e.g.:
+
+```
+$ tar xzf cdir-aarch64-apple-darwin.tar.gz
+```
+
+### 2. Install the executable and shell functions
+
+Go to the extracted directory and launch the `install.sh` script:
+
+```
+$ cd cdir-aarch64-apple-darwin
+$ ./install.sh
+#############################
+#      cdir installer       #
+#############################
+
+Installing the binary 'cdir' into: /Users/<user>/.local/bin...
+Installing the shell functions 'cdir_funcs.sh' into: /Users/<user>/.local/bin...
+done
+
+WARNING: /Users/<user>/.local/bin is not in your PATH.
+You may need to add it to your shell configuration file (export PATH=$PATH:/Users/<user>/.local/bin).
+```
+
+If you can see the warning about the PATH, you need to add the installation directory to your PATH environment variable
+(typically into your `.zshrc` or `.bashrc` file).
+
+, run the `install.sh` script located in the extracted directory, and follow the on-screen
 instructions.
+
+### 3. Initialize the configuration
+
+When the `cdir` binary can be found into your PATH, and if it is the first time you use `cdir`, you have the perform the
+following step to initialize the configuration:
+
+```
+$ cdir
+→ Initializing the configuration...
+→ Creating the default configuration file "/Users/<user>/.config/cdir/config.yaml"
+→ Creating data directory "/Users/<user>/Library/Application Support/cdir"
+→ Creating the cdir shell file "/Users/<user>/.cdirsh"
+✓ Configuration is ready. Please restart your shell or run 'source ~/.cdirsh' to apply the changes.
+Use the 'c' shell alias to launch the GUI.
+Use --help to see available commands.
+Documentation is available at https://github.com/AmadeusITGroup/cdir
+```
+
+The next time you open a terminal, you can use the `c` and `p` commands and start using `cdir`.
 
 ## Configuration
 
