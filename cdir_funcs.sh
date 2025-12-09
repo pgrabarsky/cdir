@@ -31,7 +31,7 @@ function c {
         cdir gui $TMP_FILE
         DIR="`cat $TMP_FILE`"
         [[ ! -z $DIR ]] && cd $DIR
-        rm $TMP_FILE
+        rm -f $TMP_FILE
     else
          cd "`cdir print-shortcut $1`"
     fi
