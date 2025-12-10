@@ -11,6 +11,7 @@ use ratatui::{DefaultTerminal, Frame};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 const TABLE_HEADER_LENGTH: usize = 1;
 const JUMP_OFFSET: usize = 10;
@@ -67,7 +68,7 @@ pub struct TableView<'store, T: Clone, S> {
     table_rows_count: u16, // Number of lines in the table, excluding header & footer
     rowify: RowifyFn<'store, T>,
     stringify: fn(&T) -> String,
-    search_string: String,
+    search_string: Arc<Mutex<String>>,
     colors: Colors,
     view_state: Rc<RefCell<S>>,
     delete_fn: DeleteFn<'store, T>,
@@ -95,6 +96,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
         config: &Config,
         view_state: Rc<RefCell<bool>>,
         delete_fn: DeleteFn<'store, T>,
+        search_string: Arc<Mutex<String>>,
     ) -> Self {
         TableView {
             data_model: DataViewModel::new(list_fn),
@@ -103,7 +105,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             table_rows_count: 0,
             rowify,
             stringify,
-            search_string: String::new(),
+            search_string,
             colors: config.colors.clone(),
             view_state,
             delete_fn,
@@ -136,7 +138,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
                             self.data_model.update(
                                 0,
                                 self.table_rows_count,
-                                self.search_string.as_str(),
+                                self.search_string.lock().unwrap().as_str(),
                                 true,
                             );
                             self.table_state.select_cell(Some((0, 0)))
@@ -156,21 +158,23 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
                         KeyCode::Tab => break GuiResult::Next,
                         KeyCode::Esc => break GuiResult::Quit,
                         KeyCode::Backspace => {
-                            self.search_string.pop();
+                            let mut search_string = self.search_string.lock().unwrap();
+                            search_string.pop();
                             self.data_model.update(
                                 0,
                                 self.table_rows_count,
-                                self.search_string.as_str(),
+                                search_string.as_str(),
                                 true,
                             );
                         }
                         KeyCode::Char(c) => {
                             if key.modifiers != KeyModifiers::CONTROL {
-                                self.search_string.push(c);
+                                let mut search_string = self.search_string.lock().unwrap();
+                                search_string.push(c);
                                 self.data_model.update(
                                     0,
                                     self.table_rows_count,
-                                    self.search_string.as_str(),
+                                    search_string.as_str(),
                                     true,
                                 );
                             } else {
@@ -243,7 +247,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
                 self.data_model.update_to_offset(
                     offset as i64,
                     self.table_rows_count,
-                    self.search_string.as_str(),
+                    self.search_string.lock().unwrap().as_str(),
                 );
             }
             let mut next = current_row + offset;
@@ -278,7 +282,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
                 self.data_model.update_to_offset(
                     -(offset as i64),
                     self.table_rows_count,
-                    self.search_string.as_str(),
+                    self.search_string.lock().unwrap().as_str(),
                 );
             }
             let mut next: i64 = (current_row as i64) - offset as i64;
@@ -307,21 +311,34 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
         let [main, input] = vertical.areas(frame.area());
         self.table_rows_count = main.height - TABLE_HEADER_LENGTH as u16;
         debug!("self.table_rows_count={}", self.table_rows_count);
+
+        let search_string_lock = self.search_string.lock().unwrap();
+        let search_string = search_string_lock.clone();
+        drop(search_string_lock);
+
         if self.data_model.length != self.table_rows_count {
             self.data_model.update(
                 self.data_model.first,
                 main.height - TABLE_HEADER_LENGTH as u16,
-                self.search_string.as_str(),
+                search_string.as_str(),
+                true,
+            );
+        } else {
+            self.data_model.update(
+                self.data_model.first,
+                self.table_rows_count,
+                search_string.as_str(),
                 true,
             );
         }
+
         self.render_table(frame, main);
 
         let horizontal =
             Layout::horizontal([Constraint::Percentage(90), Constraint::Percentage(10)]).spacing(0);
         let [left, right] = horizontal.areas(input);
 
-        let pa = Paragraph::new(format!("> {}", self.search_string))
+        let pa = Paragraph::new(format!("> {}", search_string.as_str()))
             .style(Style::default().fg(self.colors.path.parse::<Color>().unwrap()));
         frame.render_widget(pa, left);
 
