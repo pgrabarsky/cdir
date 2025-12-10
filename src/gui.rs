@@ -15,6 +15,7 @@ use ratatui::{
 
 use std::env;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 /// The several views of the application
 enum View {
@@ -107,6 +108,7 @@ impl<'a> Gui<'a> {
         store: &'a Store,
         config: &'a Config,
         view_state: &Rc<RefCell<bool>>,
+        search_string: Arc<Mutex<String>>,
     ) -> TableView<'a, Path, bool> {
         TableView::new(
             vec!["date".to_string(), "path".to_string()],
@@ -123,6 +125,7 @@ impl<'a> Gui<'a> {
                 debug!("delete path: {}", path.path);
                 store.delete_path_by_id(path.id).unwrap();
             }),
+            search_string,
         )
     }
 
@@ -131,6 +134,7 @@ impl<'a> Gui<'a> {
         store: &'a Store,
         config: &'a Config,
         view_state: Rc<RefCell<bool>>,
+        search_string: Arc<Mutex<String>>,
     ) -> TableView<'a, Shortcut, bool> {
         TableView::new(
             vec!["shortcut".to_string(), "path".to_string()],
@@ -155,17 +159,29 @@ impl<'a> Gui<'a> {
                 debug!("delete shortcut: {}", path.path);
                 store.delete_shortcut_by_id(path.id).unwrap();
             }),
+            search_string,
         )
     }
 
     /// Instantiate the application GUI
     fn new(store: &'a store::Store, config: &'a Config) -> Gui<'a> {
         let view_state = Rc::<RefCell<bool>>::new(RefCell::new(true));
+        let search_string = Arc::new(Mutex::new(String::new()));
         Gui {
             terminal: ratatui::init(),
             current_view: View::History,
-            history_view: Self::build_history_view(store, config, &view_state),
-            shortcut_view: Self::build_shortcut_view(store, config, view_state),
+            history_view: Self::build_history_view(
+                store,
+                config,
+                &view_state,
+                search_string.clone(),
+            ),
+            shortcut_view: Self::build_shortcut_view(
+                store,
+                config,
+                view_state,
+                search_string.clone(),
+            ),
         }
     }
 
