@@ -1,4 +1,4 @@
-use rusqlite::{Connection, Result};
+use rusqlite::{params, Connection, Result};
 
 use log::debug;
 use log::{error, info};
@@ -7,6 +7,10 @@ use std::fs;
 
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+// Update this when the database schema changes with the max value value of the sql
+// files in ../dbschema (e.g. if 1.sql is the latest, this should be 1)
+const CURRENT_SCHEMA_VERSION: i64 = 1;
 
 /// Represents a path entry in the database
 /// id: auto increment primary key
@@ -74,6 +78,8 @@ impl Store {
 
         if !db_exists {
             store.init_schema();
+        } else {
+            store.upgrade_schema();
         }
 
         store
@@ -84,24 +90,105 @@ impl Store {
     fn init_schema(&self) {
         info!("Initializing the database schema");
 
-        let script = "CREATE TABLE IF NOT EXISTS paths (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            path TEXT NOT NULL,
-            date INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS paths_date ON paths (date);
-        CREATE TABLE IF NOT EXISTS shortcuts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            path TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS shortcuts_name ON shortcuts (name);
-        ";
+        let script = include_str!("../dbschema/current.sql");
         debug!("Schema initialization");
         if let Err(err) = self.db_conn.execute_batch(script) {
             error!("init_schema: {}", err);
             panic!("init_schema")
         }
+    }
+
+    fn upgrade_schema(&self) {
+        info!("Upgrading the database schema if necessary");
+
+        let mut version: i64 = 0;
+
+        // Find the current version of the schema
+        let version = self.find_schema_version();
+        info!(
+            "db schema version={}, application schema version={}",
+            version, CURRENT_SCHEMA_VERSION
+        );
+
+        if version == CURRENT_SCHEMA_VERSION {
+            info!("Database schema is up to date");
+            return;
+        }
+
+        // embed the sql upgrade scripts
+        let u = [
+            include_str!("../dbschema/1.sql"),
+            // add other upgrade scripts here
+        ];
+
+        for v in version..CURRENT_SCHEMA_VERSION {
+            let script = u[v as usize];
+            info!("Upgrading schema from version {} to {}", v, v + 1);
+            debug!("Upgrade script:\n{}", script);
+            if let Err(err) = self.db_conn.execute_batch(script) {
+                error!("upgrade_schema from {} to {}: {}", v, v + 1, err);
+                panic!("upgrade_schema")
+            } else {
+                info!("Successfully upgraded schema to version {}", v + 1);
+            }
+        }
+
+        match self.db_conn.execute("DELETE FROM version", params![]) {
+            Ok(_) => {}
+            Err(e) => {
+                error!("upgrade_schema failed to clear version table: {}", e);
+                panic!("upgrade_schema failed to clear version table")
+            }
+        }
+        self.db_conn
+            .execute(
+                "INSERT INTO version (version) VALUES (?1)",
+                params![CURRENT_SCHEMA_VERSION],
+            )
+            .unwrap();
+
+        info!(
+            "Database schema is now at version {}",
+            CURRENT_SCHEMA_VERSION
+        );
+    }
+
+    fn find_schema_version(&self) -> i64 {
+        let version: i64;
+
+        let mut stmt = match self.db_conn.prepare("SELECT version FROM version") {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                error!("find_schema_version failed in prepare: {}", e);
+                return 0;
+            }
+        };
+
+        let rrows = stmt.query_map([], |row| row.get::<_, i64>(0));
+        match rrows {
+            Err(err) => {
+                error!("find_schema_version query_map error: {}", err);
+                return 0;
+            }
+            Ok(mut rows) => {
+                if let Some(row) = rows.next() {
+                    match row {
+                        Ok(v) => {
+                            debug!("found version={}", v);
+                            version = v;
+                        }
+                        Err(err) => {
+                            error!("find_schema_version row.next error: {}", err);
+                            return 0;
+                        }
+                    }
+                } else {
+                    error!("find_schema_version returned no rows");
+                    return 0;
+                }
+            }
+        }
+        version
     }
 
     /// Adds a new path to the database with the current timestamp.
