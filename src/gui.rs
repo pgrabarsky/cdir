@@ -86,6 +86,77 @@ impl<'a> Gui<'a> {
         Span::from("~").fg(Color::DarkGray) + Span::from(path[home.len()..].to_string())
     }
 
+    /// Return a Line where the longest matching shortcut path is replaced by the shortcut name
+    /// If no substitution is possible, return None
+    fn shorten_path(
+        config: &Config,
+        shortcuts: &[Shortcut],
+        path: &String,
+        size: u16,
+        allow_shortcut_exact_match: bool,
+    ) -> Option<Line<'static>> {
+        if size == 0 {
+            return None;
+        }
+
+        let mut shortened_line: Option<Line> = None;
+        let mut cpath = "";
+        let scc = config.colors.shortcut_name.parse::<Color>().unwrap();
+        for shortcut in shortcuts {
+            if !allow_shortcut_exact_match && path == &shortcut.path {
+                continue;
+            }
+            let spm = format!("{}/", shortcut.path);
+            if (path.starts_with(&spm) || path == shortcut.path.as_str())
+                && shortcut.path.len() > cpath.len()
+            {
+                cpath = shortcut.path.as_str();
+                shortened_line = Some(Self::do_shorten_path(path, scc, shortcut, size));
+            }
+        }
+        shortened_line
+    }
+
+    fn do_shorten_path(path: &String, scc: Color, shortcut: &Shortcut, size: u16) -> Line<'static> {
+        if shortcut.name.len() + 3 == size as usize {
+            return Span::from("[").fg(scc)
+                + Span::from(shortcut.name.clone()).fg(scc)
+                + Span::from("]").fg(scc)
+                + Span::from("*");
+        } else if shortcut.name.len() + 3 > size as usize {
+            return Line::from("*");
+        }
+        let mut result_path = Span::from("[").fg(scc)
+            + Span::from(shortcut.name.clone()).fg(scc)
+            + Span::from("]").fg(scc);
+
+        // if the path is an exact match of the shortcut, return it directly
+        if path == shortcut.path.as_str() {
+            return result_path;
+        }
+
+        // else we need to adjust the text if it's too long...
+
+        // We want to keep the / after the shortcut name
+        result_path += Span::from("/");
+
+        let remaining_size = size as usize - (shortcut.name.len() + 3);
+
+        // take the suffix of the path after the shortcut path and after '/'
+        let path_suffix = &path[shortcut.path.len() + 1..];
+
+        if path_suffix.len() > remaining_size {
+            let start_index = path_suffix.len() - remaining_size + 1;
+            let path_suffix = format!("*{}", &path_suffix[start_index..]);
+            result_path += Span::from(path_suffix);
+            return result_path;
+        }
+
+        result_path += Span::from(String::from(path_suffix));
+
+        result_path
+    }
+
     /// Return a function that formats a row for the history view
     fn build_format_history_row_builder(
         store: &'a store::Store,
@@ -106,7 +177,7 @@ impl<'a> Gui<'a> {
 
                     // format the path
                     let shortened_line = match *view_state.borrow() {
-                        true => Self::shorten_path(config, &shortcuts, path, size[1]),
+                        true => Self::shorten_path(config, &shortcuts, &path.path, size[1], true),
                         false => None,
                     };
                     let path = shortened_line
@@ -118,73 +189,6 @@ impl<'a> Gui<'a> {
                 .map(Row::new)
                 .collect()
         })
-    }
-
-    /// Return a Line where the longest matching shortcut path is replaced by the shortcut name
-    /// If no substitution is possible, return None
-    fn shorten_path(
-        config: &Config,
-        shortcuts: &Vec<Shortcut>,
-        path: &Path,
-        size: u16,
-    ) -> Option<Line<'static>> {
-        if size == 0 {
-            return None;
-        }
-
-        let mut shortened_line: Option<Line> = None;
-        let mut cpath = "";
-        let scc = config.colors.shortcut_name.parse::<Color>().unwrap();
-        for shortcut in shortcuts {
-            let spm = format!("{}/", shortcut.path);
-            if (path.path.starts_with(&spm) || path.path == shortcut.path)
-                && shortcut.path.len() > cpath.len()
-            {
-                cpath = shortcut.path.as_str();
-                shortened_line = Some(Self::do_shorten_path(path, scc, shortcut, size));
-            }
-        }
-        shortened_line
-    }
-
-    fn do_shorten_path(path: &Path, scc: Color, shortcut: &Shortcut, size: u16) -> Line<'static> {
-        if shortcut.name.len() + 3 == size as usize {
-            return Span::from("[").fg(scc)
-                + Span::from(shortcut.name.clone()).fg(scc)
-                + Span::from("]").fg(scc)
-                + Span::from("*");
-        } else if shortcut.name.len() + 3 > size as usize {
-            return Line::from("*");
-        }
-        let mut result_path = Span::from("[").fg(scc)
-            + Span::from(shortcut.name.clone()).fg(scc)
-            + Span::from("]").fg(scc);
-
-        // if the path is an exact match of the shortcut, return it directly
-        if path.path == shortcut.path {
-            return result_path;
-        }
-
-        // else we need to adjust the text if it's too long...
-
-        // We want to keep the / after the shortcut name
-        result_path += Span::from("/");
-
-        let remaining_size = size as usize - (shortcut.name.len() + 3);
-
-        // take the suffix of the path after the shortcut path and after '/'
-        let path_suffix = &path.path[shortcut.path.len() + 1..];
-
-        if path_suffix.len() > remaining_size {
-            let start_index = path_suffix.len() - remaining_size + 1;
-            let path_suffix = format!("*{}", &path_suffix[start_index..]);
-            result_path += Span::from(path_suffix);
-            return result_path;
-        }
-
-        result_path += Span::from(String::from(path_suffix));
-
-        result_path
     }
 
     /// Build the history view
@@ -213,6 +217,39 @@ impl<'a> Gui<'a> {
         )
     }
 
+    /// Return a function that formats a row for the history view
+    fn build_format_short_row_builder(
+        store: &'a store::Store,
+        config: &'a Config,
+        view_state: Rc<RefCell<bool>>,
+    ) -> RowifyFn<'a, store::Shortcut> {
+        let view_state = view_state.clone();
+        Box::new(move |shortcuts: &[Shortcut], size: &[u16]| {
+            let scc = config.colors.shortcut_name.parse::<Color>().unwrap();
+            let path_color = config.colors.path.parse::<Color>().unwrap();
+            shortcuts
+                .iter()
+                .map(|shortcut| {
+                    // format the path
+                    let shortened_line = match *view_state.borrow() {
+                        true => {
+                            Self::shorten_path(config, &shortcuts, &shortcut.path, size[1], false)
+                        }
+                        false => None,
+                    };
+                    let path = shortened_line
+                        .unwrap_or_else(|| Self::reduce_path(&shortcut.path, size[1]))
+                        .fg(path_color);
+
+                    Row::new(vec![
+                        Line::from(Span::from(shortcut.name.clone()).fg(scc)),
+                        path, //Self::reduce_path(&shortcut.path, size[1]).fg(path_color),
+                    ])
+                })
+                .collect()
+        })
+    }
+
     /// Build the shortcut view
     fn build_shortcut_view(
         store: &'a Store,
@@ -223,19 +260,11 @@ impl<'a> Gui<'a> {
         TableView::new(
             vec!["shortcut".to_string(), "path".to_string()],
             Box::new(|pos: usize, len: usize, text: &str| store.list_shortcuts(pos, len, text)),
-            Box::new(|shortcuts: &[store::Shortcut], width| {
-                let scc = config.colors.shortcut_name.parse::<Color>().unwrap();
-                let path_color = config.colors.path.parse::<Color>().unwrap();
-                shortcuts
-                    .iter()
-                    .map(|shortcut| {
-                        Row::new(vec![
-                            Line::from(Span::from(shortcut.name.clone()).fg(scc)),
-                            Self::reduce_path(&shortcut.path, width[1]).fg(path_color),
-                        ])
-                    })
-                    .collect()
-            }),
+            Box::new(Gui::build_format_short_row_builder(
+                store,
+                config,
+                view_state.clone(),
+            )),
             |shortcut: &store::Shortcut| shortcut.path.clone(),
             config,
             view_state.clone(),
@@ -327,7 +356,7 @@ mod tests {
             path: "/home/user/docs/project".to_string(),
             date: 0,
         };
-        let result = Gui::shorten_path(&config, &shortcuts, &path, 80);
+        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 80, true);
         assert!(result.is_some());
         let line = result.unwrap();
         let line_str = line.to_string();
@@ -347,7 +376,7 @@ mod tests {
             path: "/home/user/other/project".to_string(),
             date: 0,
         };
-        let result = Gui::shorten_path(&config, &shortcuts, &path, 80);
+        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 80, true);
         assert!(result.is_none());
     }
 
@@ -371,7 +400,7 @@ mod tests {
             path: "/home/user/docs/work".to_string(),
             date: 0,
         };
-        let result = Gui::shorten_path(&config, &shortcuts, &path, 80);
+        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 80, true);
         assert!(result.is_some());
         let line = result.unwrap();
         let line_str = line.to_string();
@@ -398,7 +427,7 @@ mod tests {
             path: "/home/user/docs/work/project".to_string(),
             date: 0,
         };
-        let result = Gui::shorten_path(&config, &shortcuts, &path, 80);
+        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 80, true);
         assert!(result.is_some());
         let line = result.unwrap();
         let line_str = line.to_string();
@@ -418,37 +447,37 @@ mod tests {
             path: "/home/user/docs/project".to_string(),
             date: 0,
         };
-        let result = Gui::shorten_path(&config, &shortcuts, &path, 14);
+        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 14, true);
         assert!(result.is_some());
         let line = result.unwrap();
         let line_str = line.to_string();
         assert_eq!(line_str, "[docs]/project");
 
-        let result = Gui::shorten_path(&config, &shortcuts, &path, 13);
+        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 13, true);
         assert!(result.is_some());
         let line = result.unwrap();
         let line_str = line.to_string();
         assert_eq!(line_str, "[docs]/*oject");
 
-        let result = Gui::shorten_path(&config, &shortcuts, &path, 9);
+        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 9, true);
         assert!(result.is_some());
         let line = result.unwrap();
         let line_str = line.to_string();
         assert_eq!(line_str, "[docs]/*t");
 
-        let result = Gui::shorten_path(&config, &shortcuts, &path, 8);
+        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 8, true);
         assert!(result.is_some());
         let line = result.unwrap();
         let line_str = line.to_string();
         assert_eq!(line_str, "[docs]/*");
 
-        let result = Gui::shorten_path(&config, &shortcuts, &path, 7);
+        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 7, true);
         assert!(result.is_some());
         let line = result.unwrap();
         let line_str = line.to_string();
         assert_eq!(line_str, "[docs]*");
 
-        let result = Gui::shorten_path(&config, &shortcuts, &path, 6);
+        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 6, true);
         assert!(result.is_some());
         let line = result.unwrap();
         let line_str = line.to_string();
