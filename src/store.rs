@@ -5,12 +5,13 @@ use log::{error, info};
 
 use std::fs;
 
+use std::fmt;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // Update this when the database schema changes with the max value value of the sql
 // files in ../dbschema (e.g. if 1.sql is the latest, this should be 1)
-const CURRENT_SCHEMA_VERSION: i64 = 1;
+const CURRENT_SCHEMA_VERSION: i64 = 2;
 
 /// Represents a path entry in the database
 /// id: auto increment primary key
@@ -32,6 +33,17 @@ pub(crate) struct Shortcut {
     pub(crate) id: i64,
     pub(crate) name: String,
     pub(crate) path: String,
+    pub(crate) description: Option<String>,
+}
+
+impl fmt::Display for Shortcut {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Shortcut {{ id: {}, name: '{}', path: '{}', description: {:?} }}",
+            self.id, self.name, self.path, self.description
+        )
+    }
 }
 
 /// Store struct to manage database connection and operations
@@ -118,6 +130,7 @@ impl Store {
         // embed the sql upgrade scripts
         let u = [
             include_str!("../dbschema/1.sql"),
+            include_str!("../dbschema/2.sql"),
             // add other upgrade scripts here
         ];
 
@@ -234,7 +247,7 @@ impl Store {
                 .prepare("INSERT INTO paths (path, date) VALUES ((?1),(?2))")?;
             stmt.execute([path, &format!("{}", epoc)])
                 .map_err(|e| {
-                    error!("Failed to insert path '{}' time'{}: {}", path, epoc, e);
+                    error!("Failed to insert path '{}' time' {}: {}", path, epoc, e);
                     e
                 })
                 .map(|_l| ())
@@ -328,17 +341,57 @@ impl Store {
     ///
     /// ### Returns
     /// Ok(()) if the operation was successful, otherwise an error.
-    pub(crate) fn add_shortcut(&self, name: &str, path: &str) -> Result<(), rusqlite::Error> {
+    pub(crate) fn add_shortcut(
+        &self,
+        name: &str,
+        path: &str,
+        description: Option<&str>,
+    ) -> Result<(), rusqlite::Error> {
         debug!("add_shortcut: {} {}", name, path);
         self.delete_shortcut(name)?;
-        let mut stmt = self
-            .db_conn
-            .prepare("INSERT INTO shortcuts (name, path) VALUES ((?1),(?2))")?;
-        stmt.execute([name, path])
+        self.db_conn
+            .execute(
+                "INSERT INTO shortcuts (name, path, description) VALUES ((?1),(?2),(?3))",
+                (name, path, description),
+            )
             .map_err(|e| {
                 error!(
                     "Failed to insert shortcuts name='{}' time='{}': {}",
                     name, path, e
+                );
+                e
+            })
+            .map(|_l| ())
+    }
+
+    /// Updates an existing shortcut in the database by its id.
+    /// If the shortcut does not exist, no action is taken.
+    ///
+    /// ### Parameters
+    /// id: the ID of the shortcut to update
+    /// name: the new name of the shortcut
+    /// path: the new file path associated with the shortcut
+    /// description: the new description of the shortcut (optional)
+    ///
+    /// ### Returns
+    /// Ok(()) if the operation was successful, otherwise an error.
+    pub(crate) fn update_shortcut(
+        &self,
+        id: i64,
+        name: &str,
+        path: &str,
+        description: Option<&str>,
+    ) -> Result<(), rusqlite::Error> {
+        debug!("update_shortcut: id={} name={} path={}", id, name, path);
+        self.db_conn
+            .execute(
+                "UPDATE shortcuts SET name = (?1), path = (?2), description = (?3) WHERE id = (?4)",
+                (name, path, description, id),
+            )
+            .map_err(|e| {
+                error!(
+                    "Failed to update shortcut id='{}' name='{}' path='{}': {}",
+                    id, name, path, e
                 );
                 e
             })
@@ -391,12 +444,12 @@ impl Store {
     ///
     /// ### Returns
     /// Some(path) if the shortcut is found, otherwise None.
-    pub(crate) fn find_shortcut(&self, name: &str) -> Option<String> {
+    pub(crate) fn find_shortcut(&self, name: &str) -> Option<Shortcut> {
         debug!("find_shortcut {}", name);
 
         let mut stmt = match self
             .db_conn
-            .prepare("SELECT path FROM shortcuts WHERE name=(?1)")
+            .prepare("SELECT id, path, description FROM shortcuts WHERE name=(?1)")
         {
             Ok(stmt) => stmt,
             Err(e) => {
@@ -404,14 +457,20 @@ impl Store {
                 return None;
             }
         };
-        let rrows = stmt.query_map([name], |row| row.get::<_, String>(0));
-        match rrows {
+
+        let oshort = match stmt.query_map([name], |row| {
+            Ok(Shortcut {
+                id: row.get(0)?,
+                name: name.to_string(),
+                path: row.get(1)?,
+                description: row.get(2)?,
+            })
+        }) {
             Ok(mut rows) => rows.next().and_then(|row| row.ok()),
-            Err(e) => {
-                error!("find_shortcut: {}", e);
-                None
-            }
-        }
+            Err(e) => None,
+        };
+        debug!("find_shortcut {:?}", oshort);
+        oshort
     }
 
     /// Lists shortcuts from the database with pagination and optional filtering.
@@ -433,7 +492,7 @@ impl Store {
     ) -> Result<Vec<Shortcut>, rusqlite::Error> {
         debug!("list_shortcuts pos={} len={} text={}", pos, len, like_text);
 
-        let mut sql = String::from("SELECT id, name, path FROM shortcuts");
+        let mut sql = String::from("SELECT id, name, path, description FROM shortcuts");
         let mut params: Vec<String> = vec![];
         if !like_text.is_empty() {
             sql.push_str(" WHERE path like '%' || (?1) || '%' OR name like '%' || (?1) || '%'");
@@ -454,10 +513,12 @@ impl Store {
         };
 
         let rows = match stmt.query_map(rusqlite::params_from_iter(params), |row| {
+            debug!("list_shortcuts row={:?}", row);
             Ok(Shortcut {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 path: row.get(2)?,
+                description: row.get(3)?,
             })
         }) {
             Ok(rows) => rows,
@@ -480,7 +541,10 @@ impl Store {
     /// ### Returns
     /// A vector of all Shortcut entries if the operation was successful, otherwise an error.
     pub(crate) fn list_all_shortcuts(&self) -> Result<Vec<Shortcut>, rusqlite::Error> {
-        let sql = String::from("SELECT id, name, path FROM shortcuts ORDER BY name asc, id desc");
+        debug!("list_all_shortcuts");
+        let sql = String::from(
+            "SELECT id, name, path, description FROM shortcuts ORDER BY name asc, id desc",
+        );
 
         let mut stmt = match self.db_conn.prepare(sql.as_str()) {
             Ok(stmt) => stmt,
@@ -491,10 +555,12 @@ impl Store {
         };
 
         let rows = match stmt.query_map([], |row| {
+            debug!("list_shortcuts row={:?}", row);
             Ok(Shortcut {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 path: row.get(2)?,
+                description: row.get(3)?,
             })
         }) {
             Ok(rows) => rows,
@@ -519,6 +585,14 @@ impl Store {
         };
         store.init_schema();
         store
+    }
+}
+
+impl Clone for Store {
+    fn clone(&self) -> Self {
+        Store {
+            db_conn: Rc::clone(&self.db_conn),
+        }
     }
 }
 
@@ -580,26 +654,34 @@ mod tests {
         assert_eq!(paths.len(), 0);
 
         // A single entry
-        store.add_shortcut("shortcut_1", "/1").unwrap();
+        store
+            .add_shortcut("shortcut_1", "/1", Some("desc1"))
+            .unwrap();
         let shortcuts = store.list_shortcuts(0, 10, "").unwrap();
         assert_eq!(shortcuts.len(), 1);
         assert_eq!(shortcuts[0].name, "shortcut_1");
         assert_eq!(shortcuts[0].path, "/1");
+        assert_eq!(shortcuts[0].description, Some("desc1".to_string()));
 
         // Two entries
-        store.add_shortcut("shortcut_2", "/2").unwrap();
+        store
+            .add_shortcut("shortcut_2", "/2", Some("desc2"))
+            .unwrap();
         let shortcuts = store.list_shortcuts(0, 10, "").unwrap();
         assert_eq!(shortcuts.len(), 2);
         assert_eq!(shortcuts[0].name, "shortcut_1");
         assert_eq!(shortcuts[0].path, "/1");
+        assert_eq!(shortcuts[0].description, Some("desc1".to_string()));
         assert_eq!(shortcuts[1].name, "shortcut_2");
         assert_eq!(shortcuts[1].path, "/2");
+        assert_eq!(shortcuts[1].description, Some("desc2".to_string()));
 
         // Perform a search
         let shortcuts = store.list_shortcuts(0, 10, "2").unwrap();
         assert_eq!(shortcuts.len(), 1);
         assert_eq!(shortcuts[0].name, "shortcut_2");
         assert_eq!(shortcuts[0].path, "/2");
+        assert_eq!(shortcuts[0].description, Some("desc2".to_string()));
 
         // Delete the one
         let shortcuts = store.list_shortcuts(0, 10, "").unwrap();
@@ -607,5 +689,19 @@ mod tests {
         let shortcuts = store.list_shortcuts(0, 10, "").unwrap();
         assert_eq!(shortcuts.len(), 1);
         assert_eq!(shortcuts[0].name, "shortcut_1");
+
+        // Test empty description
+        store.add_shortcut("shortcut_nodesc", "/1", None).unwrap();
+        let shortcuts = store.list_shortcuts(0, 10, "").unwrap();
+        assert_eq!(shortcuts.len(), 2);
+        assert_eq!(shortcuts[0].name, "shortcut_1");
+        assert_eq!(shortcuts[1].name, "shortcut_nodesc");
+        assert_eq!(shortcuts[1].description, None);
+
+        let shortcuts = store.list_all_shortcuts().unwrap();
+        assert_eq!(shortcuts.len(), 2);
+        assert_eq!(shortcuts[0].name, "shortcut_1");
+        assert_eq!(shortcuts[1].name, "shortcut_nodesc");
+        assert_eq!(shortcuts[1].description, None);
     }
 }

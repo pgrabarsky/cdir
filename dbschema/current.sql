@@ -17,6 +17,7 @@ CREATE INDEX IF NOT EXISTS paths_date ON paths (date);
 CREATE TABLE IF NOT EXISTS shortcuts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
-    path TEXT NOT NULL
+    path TEXT NOT NULL,
+    description TEXT
 );
 CREATE INDEX IF NOT EXISTS shortcuts_name ON shortcuts (name);

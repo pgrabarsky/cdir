@@ -56,6 +56,7 @@ fn load_paths(store: Store, new_paths: Vec<Path>) {
 struct Shortcut {
     name: String,
     path: String,
+    description: Option<String>,
 }
 
 pub(crate) fn load_shortcuts_from_yaml(store: Store, yaml_file: PathBuf) {
@@ -85,7 +86,7 @@ pub(crate) fn load_shortcuts_from_yaml(store: Store, yaml_file: PathBuf) {
 fn load_shortcuts(store: Store, new_paths: Vec<Shortcut>) {
     for entry in new_paths {
         let _ = store
-            .add_shortcut(&entry.name, &entry.path)
+            .add_shortcut(&entry.name, &entry.path, entry.description.as_deref())
             .map_err(|e| error!("{}", e));
     }
 }
