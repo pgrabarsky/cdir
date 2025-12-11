@@ -33,19 +33,57 @@ struct Gui<'a> {
 
 impl<'a> Gui<'a> {
     /// Return a Line with where HOME is replaced by '~'
-    fn reduce_path(path: &Path) -> Line<'_> {
+    fn reduce_path(path: &String, size: u16) -> Line<'_> {
+        if size == 0 {
+            return Line::from("");
+        }
+
         let home = env::var("HOME");
         match home {
             Ok(home) => {
                 let spm = home.clone() + "/";
-                if path.path.starts_with(&(spm)) || path.path == home {
-                    Span::from("~").fg(Color::DarkGray) + Span::from(&path.path[(spm.len() - 1)..])
+                if path.starts_with(&spm) || path == home.as_str() {
+                    //Span::from("~").fg(Color::DarkGray) + Span::from(&path.path[(spm.len() - 1)..])
+                    Self::do_reduce_path(path, home, size)
                 } else {
-                    Line::from(Span::from(path.path.clone()))
+                    Self::reduce_string(path, size as usize) // Line::from(Span::from(path.path.clone()))
                 }
             }
-            Err(_) => Line::from(Span::from(path.path.clone())),
+            Err(_) => Self::reduce_string(path, size as usize),
         }
+    }
+
+    fn reduce_string(path: &str, size: usize) -> Line<'static> {
+        if path.len() <= size {
+            return Line::from(Span::from(path.to_string()));
+        }
+        let remaining_size = size - 1;
+        let path_suffix = &path[path.len() - remaining_size..];
+        Line::from(Span::from(format!("*{}", path_suffix)))
+    }
+
+    fn do_reduce_path(path: &String, home: String, size: u16) -> Line<'static> {
+        if path == &home {
+            return Line::from("~").fg(Color::DarkGray);
+        }
+
+        if size == 1 {
+            return Line::from("*");
+        } else if size == 2 {
+            return Line::from("~*");
+        } else if size == 3 {
+            return Line::from("~/*");
+        }
+
+        let path_suffix = &path[home.len() + 1..];
+        let remaining_size = size as usize - 2; // for '~' and '/'
+        if path_suffix.len() > remaining_size {
+            let start_index = path_suffix.len() - remaining_size + 1;
+            let path_suffix = format!("*{}", &path_suffix[start_index..]);
+            return Span::from("~").fg(Color::DarkGray) + Span::from("/") + Span::from(path_suffix);
+        }
+
+        Span::from("~").fg(Color::DarkGray) + Span::from(path[home.len()..].to_string())
     }
 
     /// Return a function that formats a row for the history view
@@ -55,22 +93,27 @@ impl<'a> Gui<'a> {
         view_state: Rc<RefCell<bool>>,
     ) -> RowifyFn<'a, store::Path> {
         let view_state = view_state.clone();
-        Box::new(move |paths| {
+        Box::new(move |paths: &[Path], size: &[u16]| {
             let shortcuts: Vec<Shortcut> = store.list_all_shortcuts().unwrap();
             let date_color = config.colors.date.parse::<Color>().unwrap();
             let path_color = config.colors.path.parse::<Color>().unwrap();
             paths
                 .iter()
                 .map(|path| {
+                    // format the date
+                    let date: Line =
+                        Line::from(Span::from((config.date_formater)(path.date)).fg(date_color));
+
+                    // format the path
                     let shortened_line = match *view_state.borrow() {
-                        true => Self::shorten_path(config, &shortcuts, path),
+                        true => Self::shorten_path(config, &shortcuts, path, size[1]),
                         false => None,
                     };
-                    let line = shortened_line.unwrap_or_else(|| Self::reduce_path(path));
-                    vec![
-                        Line::from(Span::from((config.date_formater)(path.date)).fg(date_color)),
-                        line.fg(path_color),
-                    ]
+                    let path = shortened_line
+                        .unwrap_or_else(|| Self::reduce_path(&path.path, size[1]))
+                        .fg(path_color);
+
+                    vec![date, path]
                 })
                 .map(Row::new)
                 .collect()
@@ -78,11 +121,17 @@ impl<'a> Gui<'a> {
     }
 
     /// Return a Line where the longest matching shortcut path is replaced by the shortcut name
+    /// If no substitution is possible, return None
     fn shorten_path(
         config: &Config,
         shortcuts: &Vec<Shortcut>,
         path: &Path,
+        size: u16,
     ) -> Option<Line<'static>> {
+        if size == 0 {
+            return None;
+        }
+
         let mut shortened_line: Option<Line> = None;
         let mut cpath = "";
         let scc = config.colors.shortcut_name.parse::<Color>().unwrap();
@@ -92,15 +141,50 @@ impl<'a> Gui<'a> {
                 && shortcut.path.len() > cpath.len()
             {
                 cpath = shortcut.path.as_str();
-                shortened_line = Some(
-                    Span::from("[").fg(scc)
-                        + Span::from(shortcut.name.clone()).fg(scc)
-                        + Span::from("]").fg(scc)
-                        + Span::from(String::from(&path.path[(spm.len() - 1)..])),
-                );
+                shortened_line = Some(Self::do_shorten_path(path, scc, shortcut, size));
             }
         }
         shortened_line
+    }
+
+    fn do_shorten_path(path: &Path, scc: Color, shortcut: &Shortcut, size: u16) -> Line<'static> {
+        if shortcut.name.len() + 3 == size as usize {
+            return Span::from("[").fg(scc)
+                + Span::from(shortcut.name.clone()).fg(scc)
+                + Span::from("]").fg(scc)
+                + Span::from("*");
+        } else if shortcut.name.len() + 3 > size as usize {
+            return Line::from("*");
+        }
+        let mut result_path = Span::from("[").fg(scc)
+            + Span::from(shortcut.name.clone()).fg(scc)
+            + Span::from("]").fg(scc);
+
+        // if the path is an exact match of the shortcut, return it directly
+        if path.path == shortcut.path {
+            return result_path;
+        }
+
+        // else we need to adjust the text if it's too long...
+
+        // We want to keep the / after the shortcut name
+        result_path += Span::from("/");
+
+        let remaining_size = size as usize - (shortcut.name.len() + 3);
+
+        // take the suffix of the path after the shortcut path and after '/'
+        let path_suffix = &path.path[shortcut.path.len() + 1..];
+
+        if path_suffix.len() > remaining_size {
+            let start_index = path_suffix.len() - remaining_size + 1;
+            let path_suffix = format!("*{}", &path_suffix[start_index..]);
+            result_path += Span::from(path_suffix);
+            return result_path;
+        }
+
+        result_path += Span::from(String::from(path_suffix));
+
+        result_path
     }
 
     /// Build the history view
@@ -139,7 +223,7 @@ impl<'a> Gui<'a> {
         TableView::new(
             vec!["shortcut".to_string(), "path".to_string()],
             Box::new(|pos: usize, len: usize, text: &str| store.list_shortcuts(pos, len, text)),
-            Box::new(|shortcuts: &Vec<store::Shortcut>| {
+            Box::new(|shortcuts: &[store::Shortcut], width| {
                 let scc = config.colors.shortcut_name.parse::<Color>().unwrap();
                 let path_color = config.colors.path.parse::<Color>().unwrap();
                 shortcuts
@@ -147,7 +231,7 @@ impl<'a> Gui<'a> {
                     .map(|shortcut| {
                         Row::new(vec![
                             Line::from(Span::from(shortcut.name.clone()).fg(scc)),
-                            Line::from(Span::from(shortcut.path.clone())).fg(path_color),
+                            Self::reduce_path(&shortcut.path, width[1]).fg(path_color),
                         ])
                     })
                     .collect()
@@ -220,4 +304,269 @@ pub(crate) fn gui(store: store::Store, config: Config) -> Option<String> {
     debug!("HistoryView::new()");
     let mut gui = Gui::new(&store, &config);
     gui.run()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::store::Path;
+    use crate::store::Shortcut;
+    use std::env;
+
+    #[test]
+    fn test_shorten_path_basic() {
+        let config = Config::default();
+        let shortcuts = vec![Shortcut {
+            id: 1,
+            name: "docs".to_string(),
+            path: "/home/user/docs".to_string(),
+        }];
+        let path = Path {
+            id: 1,
+            path: "/home/user/docs/project".to_string(),
+            date: 0,
+        };
+        let result = Gui::shorten_path(&config, &shortcuts, &path, 80);
+        assert!(result.is_some());
+        let line = result.unwrap();
+        let line_str = line.to_string();
+        assert_eq!(line_str, "[docs]/project");
+    }
+
+    #[test]
+    fn test_shorten_path_no_match() {
+        let config = Config::default();
+        let shortcuts = vec![Shortcut {
+            id: 1,
+            name: "docs".to_string(),
+            path: "/home/user/docs".to_string(),
+        }];
+        let path = Path {
+            id: 1,
+            path: "/home/user/other/project".to_string(),
+            date: 0,
+        };
+        let result = Gui::shorten_path(&config, &shortcuts, &path, 80);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_shorten_path_exact_match() {
+        let config = Config::default();
+        let shortcuts = vec![
+            Shortcut {
+                id: 1,
+                name: "docs".to_string(),
+                path: "/home/user/docs".to_string(),
+            },
+            Shortcut {
+                id: 2,
+                name: "work".to_string(),
+                path: "/home/user/docs/work".to_string(),
+            },
+        ];
+        let path = Path {
+            id: 1,
+            path: "/home/user/docs/work".to_string(),
+            date: 0,
+        };
+        let result = Gui::shorten_path(&config, &shortcuts, &path, 80);
+        assert!(result.is_some());
+        let line = result.unwrap();
+        let line_str = line.to_string();
+        assert_eq!(line_str, "[work]");
+    }
+
+    #[test]
+    fn test_shorten_path_longest_match() {
+        let config = Config::default();
+        let shortcuts = vec![
+            Shortcut {
+                id: 1,
+                name: "docs".to_string(),
+                path: "/home/user/docs".to_string(),
+            },
+            Shortcut {
+                id: 2,
+                name: "work".to_string(),
+                path: "/home/user/docs/work".to_string(),
+            },
+        ];
+        let path = Path {
+            id: 1,
+            path: "/home/user/docs/work/project".to_string(),
+            date: 0,
+        };
+        let result = Gui::shorten_path(&config, &shortcuts, &path, 80);
+        assert!(result.is_some());
+        let line = result.unwrap();
+        let line_str = line.to_string();
+        assert_eq!(line_str, "[work]/project");
+    }
+
+    #[test]
+    fn test_shorten_path_limited_size() {
+        let config = Config::default();
+        let shortcuts = vec![Shortcut {
+            id: 1,
+            name: "docs".to_string(),
+            path: "/home/user/docs".to_string(),
+        }];
+        let path = Path {
+            id: 1,
+            path: "/home/user/docs/project".to_string(),
+            date: 0,
+        };
+        let result = Gui::shorten_path(&config, &shortcuts, &path, 14);
+        assert!(result.is_some());
+        let line = result.unwrap();
+        let line_str = line.to_string();
+        assert_eq!(line_str, "[docs]/project");
+
+        let result = Gui::shorten_path(&config, &shortcuts, &path, 13);
+        assert!(result.is_some());
+        let line = result.unwrap();
+        let line_str = line.to_string();
+        assert_eq!(line_str, "[docs]/*oject");
+
+        let result = Gui::shorten_path(&config, &shortcuts, &path, 9);
+        assert!(result.is_some());
+        let line = result.unwrap();
+        let line_str = line.to_string();
+        assert_eq!(line_str, "[docs]/*t");
+
+        let result = Gui::shorten_path(&config, &shortcuts, &path, 8);
+        assert!(result.is_some());
+        let line = result.unwrap();
+        let line_str = line.to_string();
+        assert_eq!(line_str, "[docs]/*");
+
+        let result = Gui::shorten_path(&config, &shortcuts, &path, 7);
+        assert!(result.is_some());
+        let line = result.unwrap();
+        let line_str = line.to_string();
+        assert_eq!(line_str, "[docs]*");
+
+        let result = Gui::shorten_path(&config, &shortcuts, &path, 6);
+        assert!(result.is_some());
+        let line = result.unwrap();
+        let line_str = line.to_string();
+        assert_eq!(line_str, "*");
+    }
+
+    #[test]
+    fn test_reduce_path_home_replacement() {
+        // Set HOME to a known value
+        let home = "/home/testuser";
+        env::set_var("HOME", home);
+        let path = Path {
+            id: 1,
+            path: format!("{}/project", home),
+            date: 0,
+        };
+        let line = Gui::reduce_path(&path.path, 80);
+        let line_str = line.to_string();
+        assert_eq!(line_str, "~/project");
+    }
+
+    #[test]
+    fn test_reduce_path_exact_home() {
+        let home = "/home/testuser";
+        env::set_var("HOME", home);
+        let path = Path {
+            id: 1,
+            path: home.to_string(),
+            date: 0,
+        };
+        let line = Gui::reduce_path(&path.path, 80);
+        let line_str = line.to_string();
+        assert_eq!(line_str, "~");
+    }
+
+    #[test]
+    fn test_reduce_path_no_home_match() {
+        env::set_var("HOME", "/home/testuser");
+        let path = Path {
+            id: 1,
+            path: "/other/path/project".to_string(),
+            date: 0,
+        };
+        let line = Gui::reduce_path(&path.path, 80);
+        let line_str = line.to_string();
+        assert_eq!(line_str, "/other/path/project");
+    }
+
+    #[test]
+    fn test_reduce_path_with_home_limited_size() {
+        let home = "/home/testuser";
+        env::set_var("HOME", home);
+        let path = Path {
+            id: 1,
+            path: format!("{}/project", home),
+            date: 0,
+        };
+
+        let line = Gui::reduce_path(&path.path, 9);
+        let line_str = line.to_string();
+        assert_eq!(line_str, "~/project");
+
+        let line = Gui::reduce_path(&path.path, 8);
+        let line_str = line.to_string();
+        assert_eq!(line_str, "~/*oject");
+
+        let line = Gui::reduce_path(&path.path, 4);
+        let line_str = line.to_string();
+        assert_eq!(line_str, "~/*t");
+
+        let line = Gui::reduce_path(&path.path, 3);
+        let line_str = line.to_string();
+        assert_eq!(line_str, "~/*");
+
+        let line = Gui::reduce_path(&path.path, 2);
+        let line_str = line.to_string();
+        assert_eq!(line_str, "~*");
+
+        let line = Gui::reduce_path(&path.path, 1);
+        let line_str = line.to_string();
+        assert_eq!(line_str, "*");
+    }
+
+    #[test]
+    fn test_reduce_path_with_home_exact_limited_size() {
+        let home = "/home/testuser";
+        env::set_var("HOME", home);
+        let path = Path {
+            id: 1,
+            path: home.to_string(),
+            date: 0,
+        };
+
+        let line = Gui::reduce_path(&path.path, 2);
+        let line_str = line.to_string();
+        assert_eq!(line_str, "~");
+
+        let line = Gui::reduce_path(&path.path, 1);
+        let line_str = line.to_string();
+        assert_eq!(line_str, "~");
+    }
+
+    #[test]
+    fn test_reduce_path_without_home_limited_size() {
+        let home = "/home/testuser";
+        env::set_var("HOME", home);
+        let path = Path {
+            id: 1,
+            path: "/other/path/project".to_string(),
+            date: 0,
+        };
+
+        let line = Gui::reduce_path(&path.path, 19);
+        let line_str = line.to_string();
+        assert_eq!(line_str, "/other/path/project");
+
+        let line = Gui::reduce_path(&path.path, 18);
+        let line_str = line.to_string();
+        assert_eq!(line_str, "*ther/path/project");
+    }
 }

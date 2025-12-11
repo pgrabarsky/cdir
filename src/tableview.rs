@@ -24,6 +24,9 @@ const DEFAULT_COLOR_SHORTCUT_NAME: fn() -> String = || String::from("Green");
 const DEFAULT_COLOR_FG_HEADER: fn() -> String = || String::from("White");
 const DEFAULT_COLOR_BG_HEADER: fn() -> String = || String::from("#1f2d6c");
 
+const TABLE_COLUMN_SPACING: u16 = 1;
+const TABLE_HIGHLIGHT_SYMBOL: &str = "> ";
+
 /// Represents the color configuration for various UI elements.
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub struct Colors {
@@ -46,6 +49,19 @@ pub struct Colors {
     pub header_bg: String,
 }
 
+impl Default for Colors {
+    fn default() -> Self {
+        Colors {
+            date: DEFAULT_COLOR_DATE(),
+            path: DEFAULT_COLOR_PATH(),
+            highlight: DEFAULT_COLOR_HIGHLIGHT(),
+            shortcut_name: DEFAULT_COLOR_SHORTCUT_NAME(),
+            header_fg: DEFAULT_COLOR_FG_HEADER(),
+            header_bg: DEFAULT_COLOR_BG_HEADER(),
+        }
+    }
+}
+
 /// Represents the possible results of a GUI action.
 pub enum GuiResult {
     Quit,
@@ -55,7 +71,7 @@ pub enum GuiResult {
 }
 
 /// A function type that converts a vector of items of type T into a vector of table rows.
-pub type RowifyFn<'store, T> = Box<dyn Fn(&Vec<T>) -> Vec<Row> + 'store>;
+pub type RowifyFn<'store, T> = Box<dyn for<'a> Fn(&'a [T], &[u16]) -> Vec<Row<'a>> + 'store>;
 
 /// A function type that deletes an item of type T into the store
 pub type DeleteFn<'store, T> = Box<dyn Fn(&T) + 'store>;
@@ -356,6 +372,53 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
         frame.render_widget(pb, right);
     }
 
+    fn resolve_column_widths(constraints: &[Constraint], total_width: u16) -> Vec<u16> {
+        use ratatui::layout::Constraint::*;
+        let mut widths = vec![0; constraints.len()];
+        let mut remaining_width = total_width as i32;
+
+        // First, assign fixed lengths
+        for (i, c) in constraints.iter().enumerate() {
+            if let Length(l) = c {
+                widths[i] = *l;
+                remaining_width -= *l as i32;
+            }
+        }
+
+        let fill_total: usize = constraints
+            .iter()
+            .filter_map(|c| {
+                if let Fill(val) = c {
+                    Some(*val as usize)
+                } else {
+                    None
+                }
+            })
+            .sum();
+        debug!(
+            "remaining_width={} fill_total={}",
+            remaining_width, fill_total
+        );
+        if fill_total > 0 && remaining_width > 0 {
+            for (i, c) in constraints.iter().enumerate() {
+                if let Fill(f) = c {
+                    widths[i] = (f64::from(*f) / f64::from(fill_total as u16)
+                        * f64::from(remaining_width))
+                    .round() as u16;
+                }
+            }
+        }
+
+        // Handle Percentage constraints
+        for (i, c) in constraints.iter().enumerate() {
+            if let Percentage(p) = c {
+                widths[i] = ((total_width as u32 * *p as u32) / 100) as u16;
+            }
+        }
+
+        widths
+    }
+
     /// Render a table with some rows and columns.
     pub fn render_table(&mut self, frame: &mut Frame, area: Rect) {
         trace!(
@@ -363,13 +426,20 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             self.data_model.first,
             self.data_model.length
         );
+
+        let widths = [Constraint::Length(20), Constraint::Fill(1)];
+        let actual_width = Self::resolve_column_widths(
+            &widths,
+            area.width - TABLE_HIGHLIGHT_SYMBOL.len() as u16 - TABLE_COLUMN_SPACING,
+        );
+        debug!("area widht={} col_width={:?}", area.width, actual_width);
+
         let rows: Vec<Row> = self
             .data_model
             .entries
             .as_ref()
-            .map_or(vec![], |entries| (self.rowify)(entries));
+            .map_or(vec![], |entries| (self.rowify)(entries, &actual_width));
 
-        let widths = [Constraint::Length(20), Constraint::Fill(1)];
         let table = Table::new(rows, widths)
             .header(
                 Row::new(self.column_names.clone()).style(
@@ -379,7 +449,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
                         .bold(),
                 ),
             )
-            .column_spacing(1)
+            .column_spacing(TABLE_COLUMN_SPACING)
             .style(Color::Black)
             .row_highlight_style(
                 Style::new()
@@ -387,7 +457,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
                     .bg(self.colors.highlight.parse().unwrap())
                     .bold(),
             )
-            .highlight_symbol("> ");
+            .highlight_symbol(TABLE_HIGHLIGHT_SYMBOL);
 
         if self.selected_row().is_none() && self.data_model.length > 0 {
             self.table_state.select(Some(0));

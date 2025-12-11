@@ -207,3 +207,15 @@ impl Config {
         println!("✓ Configuration is ready. Please restart your shell or run 'source ~/.cdirsh' to apply the changes.");
     }
 }
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            colors: Default::default(),
+            date_formater: Box::new(|date| date.to_string()),
+            db_path: Default::default(),
+            log_config_path: Default::default(),
+            date_format: Default::default(),
+        }
+    }
+}
