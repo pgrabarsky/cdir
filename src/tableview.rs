@@ -24,6 +24,8 @@ const DEFAULT_COLOR_SHORTCUT_NAME: fn() -> String = || String::from("Green");
 const DEFAULT_COLOR_FG_HEADER: fn() -> String = || String::from("White");
 const DEFAULT_COLOR_BG_HEADER: fn() -> String = || String::from("#1f2d6c");
 
+const DEFAULT_COLOR_DESCRIPTION: fn() -> String = || String::from("#808080");
+
 const TABLE_COLUMN_SPACING: u16 = 1;
 const TABLE_HIGHLIGHT_SYMBOL: &str = "> ";
 
@@ -47,6 +49,9 @@ pub struct Colors {
 
     #[serde(default = "DEFAULT_COLOR_BG_HEADER")]
     pub header_bg: String,
+
+    #[serde(default = "DEFAULT_COLOR_DESCRIPTION")]
+    pub description: String,
 }
 
 impl Default for Colors {
@@ -58,6 +63,7 @@ impl Default for Colors {
             shortcut_name: DEFAULT_COLOR_SHORTCUT_NAME(),
             header_fg: DEFAULT_COLOR_FG_HEADER(),
             header_bg: DEFAULT_COLOR_BG_HEADER(),
+            description: DEFAULT_COLOR_DESCRIPTION(),
         }
     }
 }
@@ -76,10 +82,18 @@ pub type RowifyFn<'store, T> = Box<dyn for<'a> Fn(&'a [T], &[u16]) -> Vec<Row<'a
 /// A function type that deletes an item of type T into the store
 pub type DeleteFn<'store, T> = Box<dyn Fn(&T) + 'store>;
 
+// A trait for handling modal views
+pub trait ModalView<T: Clone> {
+    fn initialize(&mut self, item: &T);
+    fn handle_event(&mut self, event: Event) -> bool;
+    fn draw(&mut self, frame: &mut Frame);
+}
+
 /// A generic table view for displaying data in a tabular format within the GUI.
 pub struct TableView<'store, T: Clone, S> {
     data_model: DataViewModel<'store, T>,
     column_names: Vec<String>,
+    column_constraints: Vec<Constraint>,
     table_state: TableState,
     table_rows_count: u16, // Number of lines in the table, excluding header & footer
     rowify: RowifyFn<'store, T>,
@@ -88,6 +102,8 @@ pub struct TableView<'store, T: Clone, S> {
     colors: Colors,
     view_state: Rc<RefCell<S>>,
     delete_fn: DeleteFn<'store, T>,
+    modal_view: Option<Box<dyn ModalView<T>>>,
+    modal_active: bool,
 }
 
 impl<'store, T: Clone> TableView<'store, T, bool> {
@@ -106,6 +122,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
     /// A new instance of `TableView`.
     pub(crate) fn new(
         column_names: Vec<String>,
+        column_constraints: Vec<Constraint>,
         list_fn: Box<ListFunction<'store, T>>,
         rowify: RowifyFn<'store, T>,
         stringify: fn(&T) -> String,
@@ -113,10 +130,12 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
         view_state: Rc<RefCell<bool>>,
         delete_fn: DeleteFn<'store, T>,
         search_string: Arc<Mutex<String>>,
+        modal_view: Option<Box<dyn ModalView<T>>>,
     ) -> Self {
         TableView {
             data_model: DataViewModel::new(list_fn),
             column_names,
+            column_constraints,
             table_state: TableState::default(),
             table_rows_count: 0,
             rowify,
@@ -125,6 +144,8 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             colors: config.colors.clone(),
             view_state,
             delete_fn,
+            modal_view,
+            modal_active: false,
         }
     }
 
@@ -140,8 +161,20 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
         self.table_state.select_cell(Some((0, 0)));
         debug!("Selected");
         let _ = terminal.draw(|frame| self.draw(frame));
+
         loop {
             let event = event::read().unwrap();
+            debug!("Main loop event: {:?}", event);
+
+            if self.modal_active {
+                if !self.modal_view.as_mut().unwrap().handle_event(event) {
+                    self.modal_active = false;
+                    self.data_model.reload();
+                }
+                let _ = terminal.draw(|frame| self.draw(frame));
+                continue;
+            }
+
             match event {
                 Event::Key(key) => {
                     match key.code {
@@ -205,6 +238,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
                                         *self.view_state.borrow_mut() = !s
                                     }
                                     'd' => self.handle_delete(),
+                                    'e' => self.handle_modal_event(),
                                     _ => {}
                                 }
                             }
@@ -321,6 +355,26 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
         }
     }
 
+    fn handle_modal_event(&mut self) {
+        debug!("handle_modal_event");
+        let mut current_row: usize = 0;
+        if let Some(items) = &self.data_model.entries {
+            current_row = match self.selected_row() {
+                Some(row) => row,
+                None => {
+                    debug!("No row selected");
+                    return;
+                }
+            };
+        }
+        if let Some(modal) = &mut self.modal_view {
+            if let Some(items) = &self.data_model.entries {
+                modal.initialize(&items[current_row]);
+                self.modal_active = true;
+            }
+        }
+    }
+
     /// Draw the table view on the given frame.
     fn draw(&mut self, frame: &mut Frame) {
         let vertical = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).spacing(0);
@@ -370,6 +424,12 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
         };
 
         frame.render_widget(pb, right);
+
+        if self.modal_active {
+            if let Some(modal) = &mut self.modal_view {
+                modal.draw(frame);
+            }
+        }
     }
 
     fn resolve_column_widths(constraints: &[Constraint], total_width: u16) -> Vec<u16> {
@@ -427,10 +487,9 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             self.data_model.length
         );
 
-        let widths = [Constraint::Length(20), Constraint::Fill(1)];
         let actual_width = Self::resolve_column_widths(
-            &widths,
-            area.width - TABLE_HIGHLIGHT_SYMBOL.len() as u16 - TABLE_COLUMN_SPACING,
+            &self.column_constraints,
+            area.width - TABLE_HIGHLIGHT_SYMBOL.len() as u16 - TABLE_COLUMN_SPACING * 2,
         );
         debug!("area widht={} col_width={:?}", area.width, actual_width);
 
@@ -440,7 +499,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             .as_ref()
             .map_or(vec![], |entries| (self.rowify)(entries, &actual_width));
 
-        let table = Table::new(rows, widths)
+        let table = Table::new(rows, self.column_constraints.clone())
             .header(
                 Row::new(self.column_names.clone()).style(
                     Style::new()

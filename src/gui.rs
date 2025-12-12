@@ -13,6 +13,8 @@ use ratatui::{
     DefaultTerminal,
 };
 
+use crate::shortcut_editor::ShortcutEditor;
+use ratatui::layout::Constraint;
 use std::env;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -200,6 +202,7 @@ impl<'a> Gui<'a> {
     ) -> TableView<'a, Path, bool> {
         TableView::new(
             vec!["date".to_string(), "path".to_string()],
+            vec![Constraint::Length(20), Constraint::Fill(1)],
             Box::new(|pos, len, text| store.list_paths(pos, len, text)),
             Box::new(Gui::build_format_history_row_builder(
                 store,
@@ -214,11 +217,12 @@ impl<'a> Gui<'a> {
                 store.delete_path_by_id(path.id).unwrap();
             }),
             search_string,
+            None,
         )
     }
 
     /// Return a function that formats a row for the history view
-    fn build_format_short_row_builder(
+    fn build_format_shortcut_row_builder(
         store: &'a store::Store,
         config: &'a Config,
         view_state: Rc<RefCell<bool>>,
@@ -226,6 +230,7 @@ impl<'a> Gui<'a> {
         let view_state = view_state.clone();
         Box::new(move |shortcuts: &[Shortcut], size: &[u16]| {
             let scc = config.colors.shortcut_name.parse::<Color>().unwrap();
+            let sdc = config.colors.description.parse::<Color>().unwrap();
             let path_color = config.colors.path.parse::<Color>().unwrap();
             shortcuts
                 .iter()
@@ -233,7 +238,7 @@ impl<'a> Gui<'a> {
                     // format the path
                     let shortened_line = match *view_state.borrow() {
                         true => {
-                            Self::shorten_path(config, &shortcuts, &shortcut.path, size[1], false)
+                            Self::shorten_path(config, shortcuts, &shortcut.path, size[1], false)
                         }
                         false => None,
                     };
@@ -243,7 +248,9 @@ impl<'a> Gui<'a> {
 
                     Row::new(vec![
                         Line::from(Span::from(shortcut.name.clone()).fg(scc)),
-                        path, //Self::reduce_path(&shortcut.path, size[1]).fg(path_color),
+                        path,
+                        Line::from(shortcut.description.as_ref().map_or("", |s| s.as_str()))
+                            .fg(sdc),
                     ])
                 })
                 .collect()
@@ -258,9 +265,18 @@ impl<'a> Gui<'a> {
         search_string: Arc<Mutex<String>>,
     ) -> TableView<'a, Shortcut, bool> {
         TableView::new(
-            vec!["shortcut".to_string(), "path".to_string()],
+            vec![
+                "shortcut".to_string(),
+                "path".to_string(),
+                "description".to_string(),
+            ],
+            vec![
+                Constraint::Length(20),
+                Constraint::Fill(1),
+                Constraint::Fill(1),
+            ],
             Box::new(|pos: usize, len: usize, text: &str| store.list_shortcuts(pos, len, text)),
-            Box::new(Gui::build_format_short_row_builder(
+            Box::new(Gui::build_format_shortcut_row_builder(
                 store,
                 config,
                 view_state.clone(),
@@ -273,6 +289,7 @@ impl<'a> Gui<'a> {
                 store.delete_shortcut_by_id(path.id).unwrap();
             }),
             search_string,
+            Some(Box::new(ShortcutEditor::new(store.clone()))),
         )
     }
 
@@ -350,6 +367,7 @@ mod tests {
             id: 1,
             name: "docs".to_string(),
             path: "/home/user/docs".to_string(),
+            description: None,
         }];
         let path = Path {
             id: 1,
@@ -370,6 +388,7 @@ mod tests {
             id: 1,
             name: "docs".to_string(),
             path: "/home/user/docs".to_string(),
+            description: None,
         }];
         let path = Path {
             id: 1,
@@ -388,11 +407,13 @@ mod tests {
                 id: 1,
                 name: "docs".to_string(),
                 path: "/home/user/docs".to_string(),
+                description: None,
             },
             Shortcut {
                 id: 2,
                 name: "work".to_string(),
                 path: "/home/user/docs/work".to_string(),
+                description: None,
             },
         ];
         let path = Path {
@@ -415,11 +436,13 @@ mod tests {
                 id: 1,
                 name: "docs".to_string(),
                 path: "/home/user/docs".to_string(),
+                description: None,
             },
             Shortcut {
                 id: 2,
                 name: "work".to_string(),
                 path: "/home/user/docs/work".to_string(),
+                description: None,
             },
         ];
         let path = Path {
@@ -441,6 +464,7 @@ mod tests {
             id: 1,
             name: "docs".to_string(),
             path: "/home/user/docs".to_string(),
+            description: None,
         }];
         let path = Path {
             id: 1,

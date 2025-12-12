@@ -21,7 +21,7 @@ alias cd="cdir_cd"
 
 # Create a new shortcut in cdir
 function p {
-   cdir add-shortcut $1 "`pwd`"
+   cdir add-shortcut $1 "`pwd`" "${2}"
 }
 
 # c command to change the current directory using shortcuts

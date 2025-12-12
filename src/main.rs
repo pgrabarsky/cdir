@@ -3,6 +3,7 @@ mod expimp;
 mod gui;
 mod help;
 mod model;
+mod shortcut_editor;
 mod store;
 mod tableview;
 
@@ -40,7 +41,11 @@ enum Commands {
     /// Import a path file
     ImportPaths { filename: String },
     /// Add a shortcut
-    AddShortcut { name: String, path: String },
+    AddShortcut {
+        name: String,
+        path: String,
+        description: Option<String>,
+    },
     /// Delete a shortcut
     DeleteShortcut { name: String },
     /// Print a shortcut
@@ -107,10 +112,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         Some(Commands::ImportPaths { filename }) => {
             load_paths_from_yaml(store, PathBuf::from(filename));
         }
-        Some(Commands::AddShortcut { name, path }) => {
+        Some(Commands::AddShortcut {
+            name,
+            path,
+            description,
+        }) => {
             //store.add_path(path).unwrap();
-            debug!("AddShortcut {} {}", name, path);
-            store.add_shortcut(name, path).unwrap()
+            debug!("AddShortcut {} {} {:?}", name, path, description);
+            store
+                .add_shortcut(name, path, description.as_ref().map(|s| s.as_str()))
+                .unwrap()
         }
         Some(Commands::DeleteShortcut { name }) => {
             //store.add_path(path).unwrap();
@@ -123,7 +134,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             match store.find_shortcut(name) {
                 None => {}
                 Some(s) => {
-                    print!("{}", s)
+                    print!("{}", s.path)
                 }
             };
         }
