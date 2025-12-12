@@ -110,7 +110,7 @@ impl Store {
             version, CURRENT_SCHEMA_VERSION
         );
 
-        if version == CURRENT_SCHEMA_VERSION {
+        if version >= CURRENT_SCHEMA_VERSION {
             info!("Database schema is up to date");
             return;
         }
