@@ -16,10 +16,10 @@ use std::sync::{Arc, Mutex};
 const TABLE_HEADER_LENGTH: usize = 1;
 const JUMP_OFFSET: usize = 10;
 
-const DEFAULT_COLOR_DATE: fn() -> String = || String::from("#000080");
-const DEFAULT_COLOR_PATH: fn() -> String = || String::from("#000000");
+const DEFAULT_COLOR_DATE: fn() -> String = || String::from("#888888");
+const DEFAULT_COLOR_PATH: fn() -> String = || String::from("#67b4b8");
 const DEFAULT_COLOR_HIGHLIGHT: fn() -> String = || String::from("#ffe680");
-const DEFAULT_COLOR_SHORTCUT_NAME: fn() -> String = || String::from("Green");
+const DEFAULT_COLOR_SHORTCUT_NAME: fn() -> String = || String::from("#00aa00");
 
 const DEFAULT_COLOR_FG_HEADER: fn() -> String = || String::from("White");
 const DEFAULT_COLOR_BG_HEADER: fn() -> String = || String::from("#1f2d6c");

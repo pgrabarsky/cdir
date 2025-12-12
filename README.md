@@ -212,15 +212,19 @@ $ cdir config-file
 
 ### Colors
 
-Colors are customizable, which is mandatory if you use a dark terminal theme.
+Default colors have been chosen to provide a good contrast on both light and dark terminal themes.
+But they can be customized.
 
-To do so, you need to edit the configuration file and, for instance, add
+To do so, you need to edit the configuration file.
+For instance, you can uncomment the light theme proposal included in the default configuration file:
 
 ```yaml
 colors:
-  date: "#80c0ff"
-  path: "#ffffff"
-  shortcut_name: "#70eeb0"
+  date: "#808080"
+  path: "#000000"
+  highlight: "#ffe680"
+  shortcut_name: "#008800"
+  description: "#808080"
 ```
 
 The available options are:
@@ -229,9 +233,11 @@ The available options are:
 
 * `path`: the color of the path in the directory history view
 
+* `highlight`: the color of the highlighting for directory selection
+
 * `shortcut_name`: the color of the shortcut name
 
-* `highlight`: the color of the highlighting for directory selection
+* `description`: the color of the shortcut description
 
 * `header_fg`: the color of the header foreground
 
@@ -269,9 +275,11 @@ To do so, the file should contain the list of shortcuts defined by a `name` and 
 Example:
 
 ```yaml
-- name: t
-  path: /tmp
-- ...
+- name: t1
+  path: /tmp1
+- name: t2
+  path: /tmp2
+  description: Temporary directory 2
 ```
 
 Then you can import it using the `cdir import` command:
