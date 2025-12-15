@@ -97,6 +97,24 @@ impl Store {
         store
     }
 
+    fn set_schema_version(&self, version: i64) {
+        match self.db_conn.execute("DELETE FROM version", params![]) {
+            Ok(_) => {}
+            Err(e) => {
+                error!("upgrade_schema failed to clear version table: {}", e);
+                panic!("upgrade_schema failed to clear version table")
+            }
+        }
+        self.db_conn
+            .execute(
+                "INSERT INTO version (version) VALUES (?1)",
+                params![version],
+            )
+            .unwrap();
+
+        info!("Database schema is now at version {}", version);
+    }
+
     /// Initializes the database schema by creating necessary tables and indexes.
     /// If the tables already exist, this function does nothing.
     fn init_schema(&self) {
@@ -108,6 +126,7 @@ impl Store {
             error!("init_schema: {}", err);
             panic!("init_schema")
         }
+        self.set_schema_version(CURRENT_SCHEMA_VERSION);
     }
 
     fn upgrade_schema(&self) {
@@ -146,24 +165,7 @@ impl Store {
             }
         }
 
-        match self.db_conn.execute("DELETE FROM version", params![]) {
-            Ok(_) => {}
-            Err(e) => {
-                error!("upgrade_schema failed to clear version table: {}", e);
-                panic!("upgrade_schema failed to clear version table")
-            }
-        }
-        self.db_conn
-            .execute(
-                "INSERT INTO version (version) VALUES (?1)",
-                params![CURRENT_SCHEMA_VERSION],
-            )
-            .unwrap();
-
-        info!(
-            "Database schema is now at version {}",
-            CURRENT_SCHEMA_VERSION
-        );
+        self.set_schema_version(CURRENT_SCHEMA_VERSION);
     }
 
     fn find_schema_version(&self) -> i64 {
