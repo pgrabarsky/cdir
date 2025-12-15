@@ -102,6 +102,8 @@ Then you can navigate using the following keys:
 
 * Use `ctrl + d` to delete the selected entry.
 
+* In the shortcuts view, use `ctrl + e` to edit the description.
+
 You can type a free text to filter the directory history or shortcuts.
 
 Tip: You can use `ctrl+a` to see the full directory path in the directory history view.

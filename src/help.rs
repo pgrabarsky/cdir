@@ -61,6 +61,11 @@ fn help_draw(frame: &mut Frame) {
         ]),
         Line::from(vec![
             Span::raw("Use "),
+            Span::styled("ctrl+e", Style::default().fg(Color::Cyan)),
+            Span::raw(" to edit a shortcut description."),
+        ]),
+        Line::from(vec![
+            Span::raw("Use "),
             Span::styled("ctrl+h", Style::default().fg(Color::Cyan)),
             Span::raw(" for the help screen."),
         ]),
