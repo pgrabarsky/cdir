@@ -27,6 +27,7 @@ enum View {
 
 /// The main application structure
 struct Gui<'a> {
+    config: &'a Config,
     terminal: DefaultTerminal,
     current_view: View,
     history_view: TableView<'a, store::Path, bool>,
@@ -289,7 +290,7 @@ impl<'a> Gui<'a> {
                 store.delete_shortcut_by_id(path.id).unwrap();
             }),
             search_string,
-            Some(Box::new(ShortcutEditor::new(store.clone()))),
+            Some(Box::new(ShortcutEditor::new(store.clone(), config.clone()))),
         )
     }
 
@@ -298,6 +299,7 @@ impl<'a> Gui<'a> {
         let view_state = Rc::<RefCell<bool>>::new(RefCell::new(true));
         let search_string = Arc::new(Mutex::new(String::new()));
         Gui {
+            config,
             terminal: ratatui::init(),
             current_view: View::History,
             history_view: Self::build_history_view(
@@ -337,7 +339,7 @@ impl<'a> Gui<'a> {
                 },
                 GuiResult::Help => {
                     debug!("Help requested");
-                    help::help_run(&mut self.terminal);
+                    help::help_run(&mut self.terminal, self.config);
                 }
             }
         }

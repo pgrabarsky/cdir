@@ -222,6 +222,7 @@ For instance, you can uncomment the light theme proposal included in the default
 
 ```yaml
 colors:
+  background: "#ffffff"
   date: "#808080"
   path: "#000000"
   highlight: "#ffe680"
@@ -230,6 +231,8 @@ colors:
 ```
 
 The available options are:
+
+* `background`: the background color of the UI, if not set, the terminal background color is used
 
 * `date`: the color of the date in the directory history view
 

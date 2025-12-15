@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex};
 const TABLE_HEADER_LENGTH: usize = 1;
 const JUMP_OFFSET: usize = 10;
 
+const DEFAULT_BACKGROUND_COLOR: fn() -> Option<String> = || None;
 const DEFAULT_COLOR_DATE: fn() -> String = || String::from("#888888");
 const DEFAULT_COLOR_PATH: fn() -> String = || String::from("#67b4b8");
 const DEFAULT_COLOR_HIGHLIGHT: fn() -> String = || String::from("#ffe680");
@@ -32,6 +33,9 @@ const TABLE_HIGHLIGHT_SYMBOL: &str = "> ";
 /// Represents the color configuration for various UI elements.
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub struct Colors {
+    #[serde(default = "DEFAULT_BACKGROUND_COLOR")]
+    pub background: Option<String>,
+
     #[serde(default = "DEFAULT_COLOR_DATE")]
     pub date: String,
 
@@ -57,6 +61,7 @@ pub struct Colors {
 impl Default for Colors {
     fn default() -> Self {
         Colors {
+            background: DEFAULT_BACKGROUND_COLOR(),
             date: DEFAULT_COLOR_DATE(),
             path: DEFAULT_COLOR_PATH(),
             highlight: DEFAULT_COLOR_HIGHLIGHT(),
@@ -377,6 +382,14 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
 
     /// Draw the table view on the given frame.
     fn draw(&mut self, frame: &mut Frame) {
+        // Fill the frame with the background color if defined
+        if let Some(bg_color) = &self.colors.background {
+            let area = frame.area();
+            let background =
+                Paragraph::new("").style(Style::default().bg(bg_color.parse::<Color>().unwrap()));
+            frame.render_widget(background, area);
+        }
+
         let vertical = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).spacing(0);
         let [main, input] = vertical.areas(frame.area());
         self.table_rows_count = main.height - TABLE_HEADER_LENGTH as u16;
