@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crossterm::event;
 use log::debug;
 use ratatui::style::Style;
@@ -5,13 +6,15 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Padding, Paragraph};
 use ratatui::{style::Color, DefaultTerminal, Frame};
 
-pub(crate) fn help_run(terminal: &mut DefaultTerminal) {
+pub(crate) fn help_run(terminal: &mut DefaultTerminal, config: &Config) {
     debug!("help_run...");
-    terminal.draw(help_draw).unwrap();
+    terminal
+        .draw(|frame: &mut Frame| help_draw(frame, config))
+        .unwrap();
     event::read().unwrap();
 }
 
-fn help_draw(frame: &mut Frame) {
+fn help_draw(frame: &mut Frame, config: &Config) {
     let message = Paragraph::new(vec![
         Line::from(vec![
             Span::raw("Use "),
@@ -82,5 +85,11 @@ fn help_draw(frame: &mut Frame) {
             ))
             .borders(Borders::ALL),
     );
+    // Fill the frame with the background color if defined
+    if let Some(bg_color) = &config.colors.background {
+        let background =
+            Paragraph::new("").style(Style::default().bg(bg_color.parse::<Color>().unwrap()));
+        frame.render_widget(background, frame.area());
+    }
     frame.render_widget(message, frame.area());
 }

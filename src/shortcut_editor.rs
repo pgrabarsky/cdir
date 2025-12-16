@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::store;
 use crate::store::Shortcut;
 use crate::tableview::ModalView;
@@ -5,20 +6,22 @@ use crossterm::event::{Event, KeyCode};
 use log::{debug, error};
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Style};
-use ratatui::widgets::{Block, Borders, Clear};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 use tui_textarea::{Input, Key, TextArea};
 
 pub struct ShortcutEditor {
     store: store::Store,
+    config: Config,
     shortcut: Option<Shortcut>,
     textarea: Option<TextArea<'static>>,
 }
 
 impl ShortcutEditor {
-    pub fn new(store: store::Store) -> Self {
+    pub fn new(store: store::Store, config: Config) -> Self {
         Self {
             store,
+            config,
             shortcut: None,
             textarea: None,
         }
@@ -93,6 +96,12 @@ impl ModalView<Shortcut> for ShortcutEditor {
         ]);
         let chunks = layout.split(frame.area());
         frame.render_widget(Clear, chunks[1]);
+        // Fill the frame with the background color if defined
+        if let Some(bg_color) = &self.config.colors.background {
+            let background =
+                Paragraph::new("").style(Style::default().bg(bg_color.parse::<Color>().unwrap()));
+            frame.render_widget(background, chunks[1]);
+        }
         frame.render_widget(self.textarea.as_ref().unwrap(), chunks[1]);
     }
 }

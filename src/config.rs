@@ -219,3 +219,17 @@ impl Default for Config {
         }
     }
 }
+
+// Implement Clone manually for Config due to the closure field
+impl Clone for Config {
+    fn clone(&self) -> Self {
+        Config {
+            db_path: self.db_path.clone(),
+            log_config_path: self.log_config_path.clone(),
+            date_format: self.date_format.clone(),
+            colors: self.colors.clone(),
+            // Provide a new default closure for date_formater
+            date_formater: Box::new(|date| date.to_string()),
+        }
+    }
+}
