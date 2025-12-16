@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>cdir - Quickly navigate your directory history</title>
+    <meta name="description" content="cdir allows you to quickly navigate to a directory recorded into your history.">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Fira+Mono:400,700|Inter:400,700&display=swap">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" type="text/css" href="asciinema-player.css" />
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
+        <div class="container">
+            <a class="navbar-brand d-flex align-items-center" href="#">
+                <span class="fw-bold fs-4">cdir</span>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item"><a class="nav-link" href="#features">Features</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#commands">Commands</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#ui">UI Navigation</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#installation">Installation</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#configuration">Configuration</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#importing-shortcuts">Importing Shortcuts</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#logging">Logging</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#license">License</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+    <header class="hero-section text-center py-5">
+        <div class="container">
+            <h1 class="display-4 fw-bold mb-2">cdir</h1>
+            <p class="lead mb-4">cdir allows you to quickly navigate to a directory recorded into your history.</p>
+            <div id="demo" class="mx-auto mb-4" style="max-width:900px;"></div>
+            <script src="asciinema-player.min.js"></script>
+            <script>
+                AsciinemaPlayer.create('merged.cast', document.getElementById('demo'), {
+                    loop: true,
+                    poster: 'npt:0:1',
+                    markers: [
+                        [3.0, "Introduction"],
+                        [42.0, "Launching the GUI"],
+                        [46.0, "Demo: Launching the GUI"],
+                        [56.0, "Regular cd"],
+                        [65.0, "Demo: Regular cd"],
+                        [80.0, "Going back to a recorded directory"],
+                        [92.0, "Demo: Going back to a recorded directory"],
+                        [106, "Filtering"],
+                        [120, "Demo: Filtering"],
+                        [140, "Conclusion"]
+                    ]
+                });
+            </script>
+        </div>
+    </header>
+    <main class="container my-5">
+        <section id="features" class="mb-5">
+            <h2 class="section-title">Features</h2>
+            <ul>
+                <li>Records your directory history</li>
+                <li>Quickly navigate to previously visited directories with a console UI</li>
+                <li>Directory shortcuts</li>
+                <li>Text search for directories and shortcuts</li>
+                <li>Supports multiple shells (zsh, bash)</li>
+                <li>Import predefined shortcuts from a YAML file</li>
+                <li>Customizable colors</li>
+                <li>Supports multiple platforms (Linux, macOS)</li>
+            </ul>
+        </section>
+        <section id="commands" class="mb-5">
+            <h2 class="section-title">Commands</h2>
+            <p>There are three main commands from the terminal:</p>
+            <h3>Open the cdir ui</h3>
+            <pre><code>$ c</code></pre>
+            <h3>Create a named shortcut to the current directory</h3>
+            <pre><code>$ p myshortcut "optional description"</code></pre>
+            <h3>Go to a directory by shortcut name</h3>
+            <pre><code>$ c myshortcut</code></pre>
+            <h3>Others</h3>
+            <p>You can discover other commands using <code>cdir --help</code>:</p>
+            <pre><code>$ cdir --help
+cdir helps you to switch quickly and easily between directories
+
+Usage: cdir [OPTIONS] [COMMAND]
+
+Commands:
+  gui               Launch the GUI
+  config-file       Print the path to the configuration file
+  add-path          Add a directory path
+  import-paths      Import a path file
+  add-shortcut      Add a shortcut
+  delete-shortcut   Delete a shortcut
+  print-shortcut    Print a shortcut
+  import-shortcuts  Import a shortcuts file
+  lasts             Print last paths
+  help              Print this message or the help of the given subcommand(s)
+
+Options:
+  -c, --config-file <CONFIG_FILE>  Path to the configuration file
+  -h, --help                       Print help
+  -V, --version                    Print version</code></pre>
+        </section>
+        <section id="ui" class="mb-5">
+            <h2 class="section-title">Navigating the UI</h2>
+            <p>You can open the UI by typing <code>c</code> in your terminal.</p>
+            <p>There are three views:
+            <ul>
+                <li><b>Directory history view:</b> List of previously visited directories, sorted by most recent visit, with last visit date.</li>
+                <li><b>Shortcuts view:</b> List of defined shortcuts.</li>
+                <li><b>Help view:</b> Shows available commands.</li>
+            </ul>
+            <p>Use <kbd>Tab</kbd> to switch between the first two views, and <kbd>Ctrl+H</kbd> for help.</p>
+            <ul>
+                <li><kbd>Enter</kbd>: Go to selected directory</li>
+                <li><kbd>Esc</kbd> or <kbd>Ctrl+Q</kbd>: Exit and stay in current directory</li>
+                <li><kbd>Up/Down</kbd>: Select directory (<kbd>Shift</kbd> for bigger jumps)</li>
+                <li><kbd>Page Up/Page Down</kbd>: Scroll by page</li>
+                <li><kbd>Home</kbd>: Go to most recent directory (the top)</li>
+                <li><kbd>Ctrl+A</kbd>: Show full directory path</li>
+                <li><kbd>Ctrl+D</kbd>: Delete selected entry</li>
+                <li><kbd>Ctrl+E</kbd> (shortcuts view): Edit description</li>
+            </ul></p>
+            <p>Also, you can simply type a string to filter directories history or shortcuts.</p>
+        </section>
+        <section id="installation" class="mb-5">
+            <h2 class="section-title">Installation</h2>
+            <h3>With Homebrew (macOS only)</h3>
+            <ol>
+                <li>Setup the AmadeusITGroup tap:<br><code>brew tap AmadeusITGroup/tap</code></li>
+                <li>Install cdir:<br><code>brew install cdir</code></li>
+                <li>If it is the first time you use <code>cdir</code>, you have to perform the
+                    following step to initialize the configuration:
+                    <pre><code>$ cdir
+→ Initializing the configuration...
+→ Creating the default configuration file "/Users/&lt;user&gt;/.config/cdir/config.yaml"
+→ Creating data directory "/Users/&lt;user&gt;/Library/Application Support/cdir"
+→ Creating the cdir shell file "/Users/&lt;user&gt;/.cdirsh"
+→ Adding source line to "~/.zshrc"
+✓ Configuration is ready. Please restart your shell or run 'source ~/.cdirsh' to apply the changes.
+Use the 'c' shell alias to launch the GUI.
+Use --help to see available commands.
+Documentation is available at https://github.com/AmadeusITGroup/cdir</code></pre>
+                </li>
+            </ol>
+            Either restart your shell or run <code>source ~/.cdirsh</code> to apply the changes.<br>
+            Then, you can use the <code>c</code> shell alias to launch the GUI, and the <code>p</code> alias to create shortcuts.
+            <h3>From the tarball (Linux or macOS)</h3>
+            <ol>
+                <li>Download the latest release from the <a href="https://github.com/AmadeusITGroup/cdir/releases">releases page</a>.</li>
+                <li>Extract the archive:<br><code>tar xzf cdir-aarch64-apple-darwin.tar.gz</code></li>
+                <li>Go to the extracted directory and run the installer:<br><code>cd cdir-aarch64-apple-darwin<br>./install.sh</code></li>
+                <li>If needed, add the installation directory to your <code>PATH</code>.</li>
+                <li>Run <code>cdir</code> to initialize the configuration as described in the section for macOS here above.</li>
+            </ol>
+        </section>
+        <section id="configuration" class="mb-5">
+            <h2 class="section-title">Configuration</h2>
+            <p>Several aspects of <code>cdir</code> can be customized to fit your needs.
+                You can refer to the configuration file for the available options.</p>
+            <h3>Path to the configuration file</h3>
+            <p>The path to the configuration file can be found using:</p>
+            <pre><code>$ cdir config-file</code></pre>
+            <h3>Colors</h3>
+            <p>Default colors have been chosen to provide a good contrast on both light and dark terminal themes.
+                But they can be customized.</p>
+            <p>To do so, you need to edit the configuration file.
+                For instance, you can uncomment the light theme proposal included in the default configuration file:
+            </p>
+            <pre><code>colors:
+  background: "#ffffff"
+  date: "#808080"
+  path: "#000000"
+  highlight: "#ffe680"
+  shortcut_name: "#008800"
+  description: "#808080"
+</code></pre>
+
+            <p>The available options are:</p>
+            <ul>
+                <li><code>background</code>: the background color of the UI, if not set, the terminal background color is used</li>
+                <li><code>date</code>: the date color in the directory history view</li>
+                <li><code>path</code>: the directory path color</li>
+                <li><code>highlight</code>: the highlight color for selection</li>
+                <li><code>shortcut_name</code>: the shortcut name color</li>
+                <li><code>description</code>: the shortcut description color</li>
+                <li><code>header_fg</code>: the header foreground color</li>
+                <li><code>header_bg</code>: the header background color</li>
+            </ul>
+            <h3>Date format</h3>
+            <p>The date format can be customized using the <code>date_format</code> option in the configuration file.
+                Refer to the <a href="https://docs.rs/chrono/0.4.38/chrono/format/strftime/index.html">chrono docs</a> for the formating
+                options.
+            </p>
+            <pre><code>date_format: "%d-%b-%y %H:%M"</code></pre>
+            <h3>Path to the database</h3>
+            <p>The path to the database can be set using the <code>db_path</code> option in the configuration file.
+                Note that it should include the filename, for instance:
+            </p>
+            <pre><code>db_path: "/home/user/.local/share/cdir/development.db"</code></pre>
+            <h3>Path to the log configuration file</h3>
+            <p>The path to the log configuration file can be set using the <code>log_config_path</code> option in the configuration file.
+            </p>
+        </section>
+
+        <section id="importing-shortcuts" class="mb-5">
+            <h2 class="section-title">Importing Shortcuts</h2>
+            <p>cdir supports importing shortcuts for a YAML file.</p>
+            <p>To do so, the file should contain the list of shortcuts defined by a <code>name</code> and a <code>path</code>.</p>
+            <p>Example:</p>
+            <pre><code>- name: t1
+  path: /tmp1
+- name: t2
+  path: /tmp2
+  description: Temporary directory 2
+</code></pre>
+            <p>Import with:</p>
+            <pre><code>$ cdir import-shortcuts /path/to/shortcuts.yaml</code></pre>
+        </section>
+
+        <section id="logging" class="mb-5">
+            <h2 class="section-title">Logging</h2>
+            <p>By default, cdir logs are configured in a <code>log4rs.yaml</code> file in the config directory.</p>
+            <p>It can be adjusted, notably to change the log level.</p>
+            cdir uses <a href="https://docs.rs/log4rs/latest/log4rs/">log4rs</a> for logging. See <a href="https://docs.rs/log4rs/latest/log4rs/#configuration">the documentation</a> for details.</p>
+        </section>
+
+        <section id="license" class="mb-5">
+            <h2 class="section-title">License</h2>
+            <p>This project is licensed to Amadeus IT Group SA under the Apache License 2.0.</p>
+            <p>See the <a href="../LICENSE">LICENSE</a> file for details.</p>
+        </section>
+    </main>
+    <footer class="footer bg-dark text-light text-center py-4 mt-5">
+        <div class="container">
+            <small>Copyright &copy; 2025 Amadeus IT Group SA &mdash; <a href="https://github.com/AmadeusITGroup/cdir" class="text-info text-decoration-none">GitHub</a></small>
+        </div>
+    </footer>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+

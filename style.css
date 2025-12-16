@@ -1,0 +1,116 @@
+/* style.css - cdir website inspired by starship.rs */
+body {
+    font-family: 'Inter', Arial, sans-serif;
+    background: #fff;
+    color: #000000;
+    margin: 0;
+    min-height: 100vh;
+}
+
+.hero-section {
+    background: linear-gradient(90deg, #000835 0%, #3a8bff 100%);
+    color: #fff;
+    border-bottom: 1px solid #1e293b;
+}
+
+.section-title {
+    font-family: 'Fira Mono', monospace;
+    font-size: 2rem;
+    color: #3a8bff;
+    margin-bottom: 1rem;
+}
+
+nav.navbar {
+    background: #111827 !important;
+    border-bottom: 1px solid #1e293b;
+}
+
+.navbar-brand span {
+    color: #fff;
+    font-family: 'Fira Mono', monospace;
+}
+
+.navbar-nav .nav-link {
+    color: #e5e7ef !important;
+    font-weight: 500;
+    margin-right: 0.5rem;
+    transition: color 0.2s;
+}
+
+.navbar-nav .nav-link:hover, .navbar-nav .nav-link.active {
+    color: #7dd3fc !important;
+}
+
+main.container {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 16px rgba(0, 0, 0, 0.10);
+    padding: 2.5rem 2rem;
+    margin-top: -3rem;
+    margin-bottom: 2rem;
+}
+
+b {
+    color: #2f6cc2;
+    font-weight: 600;
+}
+
+pre, code {
+    background: #f5f5f5;
+    color: #444;
+    border-radius: 6px;
+    font-family: 'Fira Mono', monospace;
+    font-size: 1em;
+}
+
+pre {
+    padding: 0.5em;
+    margin: 0.5em 1em 0.5em 1em;
+    overflow-x: auto;
+}
+
+ul, ol {
+    margin-bottom: 1.5rem;
+}
+
+li {
+    margin-bottom: 0.5rem;
+}
+
+footer.footer {
+    background: #111827;
+    color: #7dd3fc;
+    border-top: 1px solid #1e293b;
+}
+
+a {
+    color: #7dd3fc;
+    text-decoration: underline;
+}
+
+a:hover {
+    color: #38bdf8;
+}
+
+h3 {
+    color: #3a8bff;
+    font-size: medium;
+    font-family: 'Fira Mono', monospace;
+    padding: 1em 0 0 0;
+}
+
+kbd {
+    background: #e5e7ef;
+    color: #2f6cc2;
+
+}
+
+@media (max-width: 900px) {
+    main.container {
+        padding: 1rem 0.5rem;
+    }
+
+    .hero-section {
+        padding: 2rem 0 1rem 0;
+    }
+}
