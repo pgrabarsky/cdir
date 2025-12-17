@@ -497,7 +497,7 @@ impl Store {
         let mut sql = String::from("SELECT id, name, path, description FROM shortcuts");
         let mut params: Vec<String> = vec![];
         if !like_text.is_empty() {
-            sql.push_str(" WHERE path like '%' || (?1) || '%' OR name like '%' || (?1) || '%'");
+            sql.push_str(" WHERE path like '%' || (?1) || '%' OR name like '%' || (?1) || '%' OR description like '%' || (?1) || '%'");
             sql.push_str(" ORDER BY name asc, id desc LIMIT (?2) OFFSET (?3)");
             params.push(like_text.to_string());
         } else {
