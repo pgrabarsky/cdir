@@ -52,8 +52,8 @@ pub struct Config {
 
 impl Config {
     fn build_config_file_path(config_file_path: Option<PathBuf>) -> PathBuf {
-        if config_file_path.is_some() {
-            config_file_path.unwrap()
+        if let Some(path) = config_file_path {
+            path
         } else if let Ok(config_file_path) = env::var(CDIR_CONFIG_VAR) {
             PathBuf::from(config_file_path)
         } else {
@@ -66,7 +66,7 @@ impl Config {
         path.push(".config");
         path.push("cdir");
         path.push("config.yaml");
-        return path;
+        path
     }
 
     pub fn load(config_file_path: Option<PathBuf>) -> Result<Config, String> {
@@ -121,23 +121,19 @@ impl Config {
         // ensure the data directory exists
         println!("→ Creating data directory {:?}", data_dir);
         fs::create_dir_all(&data_dir)
-            .expect(&format!("Failed to create data directory {:?}", data_dir));
+            .unwrap_or_else(|_| panic!("Failed to create data directory {:?}", data_dir));
 
         // ensure the config directory exists
-        fs::create_dir_all(config_dir).expect(&format!(
-            "Failed to create config directory {:?}",
-            config_dir
-        ));
+        fs::create_dir_all(config_dir).unwrap_or_else(|_| panic!("Failed to create config directory {:?}",
+            config_dir));
 
         // de-templatize and write the config file
         let config_template = include_str!("../templates/config.yaml");
         let config = config_template
             .replace("__CONFIG_PATH__", config_dir.to_str().unwrap())
             .replace("__DATA_PATH__", data_dir.to_str().unwrap());
-        fs::write(&config_file_path, config).expect(&format!(
-            "Failed to write config file {:?}",
-            config_file_path
-        ));
+        fs::write(&config_file_path, config).unwrap_or_else(|_| panic!("Failed to write config file {:?}",
+            config_file_path));
 
         // de-templatize and write the log4rs file if it doesn't exist
         let log4rs_config_path = config_dir.join("log4rs.yaml");
@@ -148,10 +144,8 @@ impl Config {
                 .replace("__DATA_PATH__", data_dir.to_str().unwrap());
 
             println!("→ Creating the log4rs config file {:?}", log4rs_config_path);
-            fs::write(&log4rs_config_path, log4rs_config).expect(&format!(
-                "Failed to write log4rs config file {:?}",
-                log4rs_config_path
-            ));
+            fs::write(&log4rs_config_path, log4rs_config).unwrap_or_else(|_| panic!("Failed to write log4rs config file {:?}",
+                log4rs_config_path));
         }
 
         // create the .cdirsh file in the home directory
@@ -178,7 +172,7 @@ impl Config {
 
         // write the .cdirsh file
         fs::write(&cdirsh_path, cdirsh_content)
-            .expect(&format!("Failed to write cdirsh file {:?}", cdirsh_path));
+            .unwrap_or_else(|_| panic!("Failed to write cdirsh file {:?}", cdirsh_path));
 
         // Ensure .cdirsh is sourced in .bashrc and .zshrc
         for shellrc_name in [".bashrc", ".zshrc"] {
@@ -187,7 +181,7 @@ impl Config {
             let mut needs_source = false;
             if shellrc.exists() {
                 let content = fs::read_to_string(&shellrc)
-                    .expect(&format!("Failed to read shell rc file {:?}", shellrc));
+                    .unwrap_or_else(|_| panic!("Failed to read shell rc file {:?}", shellrc));
                 if !content.contains(&source_line) {
                     needs_source = true;
                 }
@@ -198,9 +192,9 @@ impl Config {
                     .create(true)
                     .append(true)
                     .open(&shellrc)
-                    .expect(&format!("Failed to open shell rc file {:?}", shellrc));
+                    .unwrap_or_else(|_| panic!("Failed to open shell rc file {:?}", shellrc));
                 file.write_all(source_line.as_bytes())
-                    .expect(&format!("Failed to write to shell rc file {:?}", shellrc));
+                    .unwrap_or_else(|_| panic!("Failed to write to shell rc file {:?}", shellrc));
             }
         }
 

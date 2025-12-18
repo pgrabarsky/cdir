@@ -8,7 +8,7 @@ use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
-use tui_textarea::{Input, Key, TextArea};
+use tui_textarea::{Input, TextArea};
 
 pub struct ShortcutEditor {
     store: store::Store,
@@ -62,7 +62,7 @@ impl ModalView<Shortcut> for ShortcutEditor {
                             Some(textarea.lines()[0].as_str())
                         };
                         debug!("Saving description: {:?}", description);
-                        if let (Some(shortcut)) = self.shortcut.as_ref() {
+                        if let Some(shortcut) = self.shortcut.as_ref() {
                             if let Err(err) = self.store.update_shortcut(
                                 shortcut.id,
                                 shortcut.name.as_str(),
