@@ -224,7 +224,7 @@ impl<'a> Gui<'a> {
 
     /// Return a function that formats a row for the history view
     fn build_format_shortcut_row_builder(
-        store: &'a store::Store,
+        _: &'a store::Store,
         config: &'a Config,
         view_state: Rc<RefCell<bool>>,
     ) -> RowifyFn<'a, store::Shortcut> {

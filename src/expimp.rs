@@ -143,7 +143,6 @@ mod tests {
             path: String::from("b"),
             description: Some(String::from("c")),
         }];
-        let yaml = serde_yaml::to_string(&shortcuts);
         load_shortcuts(store.clone(), shortcuts);
         let rs = store.list_all_shortcuts();
         assert!(rs.is_ok());

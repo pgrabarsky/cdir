@@ -363,7 +363,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
     fn handle_modal_event(&mut self) {
         debug!("handle_modal_event");
         let mut current_row: usize = 0;
-        if let Some(items) = &self.data_model.entries {
+        if  self.data_model.entries.is_some() {
             current_row = match self.selected_row() {
                 Some(row) => row,
                 None => {

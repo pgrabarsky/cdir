@@ -132,8 +132,6 @@ impl Store {
     fn upgrade_schema(&self) {
         info!("Upgrading the database schema if necessary");
 
-        let mut version: i64 = 0;
-
         // Find the current version of the schema
         let version = self.find_schema_version();
         info!(
@@ -469,7 +467,7 @@ impl Store {
             })
         }) {
             Ok(mut rows) => rows.next().and_then(|row| row.ok()),
-            Err(e) => None,
+            Err(_) => None,
         };
         debug!("find_shortcut {:?}", oshort);
         oshort
