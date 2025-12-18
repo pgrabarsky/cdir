@@ -224,7 +224,7 @@ impl<'a> Gui<'a> {
 
     /// Return a function that formats a row for the history view
     fn build_format_shortcut_row_builder(
-        _: &'a store::Store,
+        store: &'a store::Store,
         config: &'a Config,
         view_state: Rc<RefCell<bool>>,
     ) -> RowifyFn<'a, store::Shortcut> {
@@ -239,7 +239,14 @@ impl<'a> Gui<'a> {
                     // format the path
                     let shortened_line = match *view_state.borrow() {
                         true => {
-                            Self::shorten_path(config, shortcuts, &shortcut.path, size[1], false)
+                            let all_shortcuts: Vec<Shortcut> = store.list_all_shortcuts().unwrap();
+                            Self::shorten_path(
+                                config,
+                                &all_shortcuts,
+                                &shortcut.path,
+                                size[1],
+                                false,
+                            )
                         }
                         false => None,
                     };
