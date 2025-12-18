@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::confirmation::Confirmation;
 use crate::model::{DataViewModel, ListFunction};
 use crossterm::event;
 use crossterm::event::{Event, KeyCode, KeyModifiers};
@@ -109,6 +110,9 @@ pub struct TableView<'store, T: Clone, S> {
     delete_fn: DeleteFn<'store, T>,
     modal_view: Option<Box<dyn ModalView<T>>>,
     modal_active: bool,
+    confirmation_view: Option<Box<Confirmation>>,
+    confirmation_callback: Option<Box<dyn FnMut(&mut Self)>>,
+    confirmation_active: bool,
 }
 
 impl<'store, T: Clone> TableView<'store, T, bool> {
@@ -151,6 +155,9 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             delete_fn,
             modal_view,
             modal_active: false,
+            confirmation_view: None,
+            confirmation_callback: None,
+            confirmation_active: false,
         }
     }
 
@@ -171,6 +178,24 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             let event = event::read().unwrap();
             debug!("Main loop event: {:?}", event);
 
+            if self.confirmation_active {
+                if !self.confirmation_view.as_mut().unwrap().handle_event(event) {
+                    self.confirmation_active = false;
+                    if self.confirmation_view.as_ref().unwrap().result == Some(true) {
+                        debug!("Confirmation given");
+                        if let Some(mut callback) = self.confirmation_callback.take() {
+                            debug!("Executing confirmation callback");
+                            callback(self);
+                        }
+                    } else {
+                        debug!("Confirmation cancelled");
+                    }
+                    self.confirmation_view = None;
+                    self.data_model.reload();
+                }
+                let _ = terminal.draw(|frame| self.draw(frame));
+                continue;
+            }
             if self.modal_active {
                 if !self.modal_view.as_mut().unwrap().handle_event(event) {
                     self.modal_active = false;
@@ -355,15 +380,28 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
         debug!("handle_delete");
         if let Some(items) = &self.data_model.entries {
             let current_row = self.selected_row();
-            (self.delete_fn)(&items[current_row.unwrap()]);
-            self.data_model.reload();
+
+            self.confirmation_view = Some(Box::new(Confirmation::new(
+                String::from("Deletion of?\n")
+                    + (self.stringify)(&items[current_row.unwrap()]).as_str(),
+                self.colors.clone(),
+            )));
+            self.confirmation_active = true;
+
+            self.confirmation_callback = Some(Box::new(|this| {
+                if let Some(items) = &this.data_model.entries {
+                    let current_row = this.selected_row();
+                    (this.delete_fn)(&items[current_row.unwrap()]);
+                    this.data_model.reload();
+                }
+            }));
         }
     }
 
     fn handle_modal_event(&mut self) {
         debug!("handle_modal_event");
         let mut current_row: usize = 0;
-        if  self.data_model.entries.is_some() {
+        if self.data_model.entries.is_some() {
             current_row = match self.selected_row() {
                 Some(row) => row,
                 None => {
@@ -441,6 +479,11 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
         if self.modal_active {
             if let Some(modal) = &mut self.modal_view {
                 modal.draw(frame);
+            }
+        }
+        if self.confirmation_active {
+            if let Some(confirmation) = &mut self.confirmation_view {
+                confirmation.draw(frame);
             }
         }
     }
