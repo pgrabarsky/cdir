@@ -36,7 +36,14 @@ impl ModalView<Shortcut> for ShortcutEditor {
         textarea.set_block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(format!("Description of '{}'", item.name.clone())),
+                .title(format!("Description of '{}'", item.name.clone()))
+                .title_style(Style::default().fg(self.config.colors.path.parse::<Color>().unwrap()))
+                .border_style(
+                    Style::default().fg(self.config.colors.path.parse::<Color>().unwrap()),
+                ),
+        );
+        textarea.set_cursor_line_style(
+            Style::default().fg(self.config.colors.description.parse::<Color>().unwrap()),
         );
         if let Some(description) = self.shortcut.as_ref().unwrap().description.as_ref() {
             textarea.insert_str(description.as_str());
@@ -95,6 +102,14 @@ impl ModalView<Shortcut> for ShortcutEditor {
             Constraint::Fill(1),
         ]);
         let chunks = layout.split(frame.area());
+
+        let center_layout = Layout::horizontal([
+            Constraint::Length(10),
+            Constraint::Min(10),
+            Constraint::Length(10),
+        ]);
+        let chunks = center_layout.split(chunks[1]);
+
         frame.render_widget(Clear, chunks[1]);
         // Fill the frame with the background color if defined
         if let Some(bg_color) = &self.config.colors.background {
@@ -102,6 +117,7 @@ impl ModalView<Shortcut> for ShortcutEditor {
                 Paragraph::new("").style(Style::default().bg(bg_color.parse::<Color>().unwrap()));
             frame.render_widget(background, chunks[1]);
         }
+
         frame.render_widget(self.textarea.as_ref().unwrap(), chunks[1]);
     }
 }
