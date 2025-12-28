@@ -1,5 +1,7 @@
-use crate::tableview::Colors;
+use crate::theme::{Theme, ThemeStyles};
 use chrono::{DateTime, Local};
+use log::debug;
+use log::error;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
@@ -23,9 +25,19 @@ const DEFAULT_LOG_CONFIG_PATH: fn() -> Option<PathBuf> = || {
     Some(path)
 };
 
+const DEFAULT_THEMES_DIRECTORY_PATH: fn() -> Option<PathBuf> = || {
+    let mut path = dirs::home_dir().unwrap();
+    path.push(".config");
+    path.push("cdir");
+    path.push("themes");
+    Some(path)
+};
+
 const DEFAULT_DATE_FORMAT: fn() -> String = || String::from("%d-%b-%y %H:%M:%S");
 
-const DEFAULT_COLORS: fn() -> Colors = || serde_yaml::from_str("").unwrap();
+const DEFAULT_THEME: fn() -> Option<String> = || Some(String::from("default"));
+
+const DEFAULT_COLORS: fn() -> Theme = || serde_yaml::from_str("").unwrap();
 
 const DEFAULT_DATE_FORMATER: fn() -> Box<dyn Fn(i64) -> String> =
     || Box::from(|_| String::from(""));
@@ -40,11 +52,21 @@ pub struct Config {
     #[serde(default = "DEFAULT_LOG_CONFIG_PATH")]
     pub log_config_path: Option<PathBuf>,
 
+    #[serde(default = "DEFAULT_THEMES_DIRECTORY_PATH")]
+    pub themes_directory_path: Option<PathBuf>,
+
     #[serde(default = "DEFAULT_DATE_FORMAT")]
     pub date_format: String,
 
+    #[serde(default = "DEFAULT_THEME")]
+    pub theme: Option<String>,
+
     #[serde(default = "DEFAULT_COLORS")]
-    pub colors: Colors,
+    pub inline_theme: Theme,
+
+    #[serde(skip_serializing)]
+    #[serde(skip_deserializing)]
+    pub styles: ThemeStyles,
 
     #[serde(skip, default = "DEFAULT_DATE_FORMATER")]
     pub date_formater: Box<dyn Fn(i64) -> String>,
@@ -74,6 +96,7 @@ impl Config {
 
         if !path.exists() {
             Self::initialize(path.clone());
+            Self::install_themes(path.clone());
         }
 
         let file = std::fs::File::open(path.clone());
@@ -87,6 +110,16 @@ impl Config {
                 return Err(format!("Failed to parse config file {:?}: {}", path, e));
             }
         }
+
+        // process themes:
+        let mut external_theme = Theme::default();
+        if let Some(theme) = config.theme.as_ref() {
+            external_theme = config.load_theme(theme).merge(&external_theme);
+        }
+        let actual_theme = config.inline_theme.merge(&external_theme);
+
+        // compute the styles fom the current inline_theme
+        config.styles = ThemeStyles::from(&actual_theme);
 
         let date_format = config.date_format.clone();
         config.date_formater = Box::from(move |s: i64| {
@@ -124,16 +157,16 @@ impl Config {
             .unwrap_or_else(|_| panic!("Failed to create data directory {:?}", data_dir));
 
         // ensure the config directory exists
-        fs::create_dir_all(config_dir).unwrap_or_else(|_| panic!("Failed to create config directory {:?}",
-            config_dir));
+        fs::create_dir_all(config_dir)
+            .unwrap_or_else(|_| panic!("Failed to create config directory {:?}", config_dir));
 
         // de-templatize and write the config file
         let config_template = include_str!("../templates/config.yaml");
         let config = config_template
             .replace("__CONFIG_PATH__", config_dir.to_str().unwrap())
             .replace("__DATA_PATH__", data_dir.to_str().unwrap());
-        fs::write(&config_file_path, config).unwrap_or_else(|_| panic!("Failed to write config file {:?}",
-            config_file_path));
+        fs::write(&config_file_path, config)
+            .unwrap_or_else(|_| panic!("Failed to write config file {:?}", config_file_path));
 
         // de-templatize and write the log4rs file if it doesn't exist
         let log4rs_config_path = config_dir.join("log4rs.yaml");
@@ -144,8 +177,12 @@ impl Config {
                 .replace("__DATA_PATH__", data_dir.to_str().unwrap());
 
             println!("→ Creating the log4rs config file {:?}", log4rs_config_path);
-            fs::write(&log4rs_config_path, log4rs_config).unwrap_or_else(|_| panic!("Failed to write log4rs config file {:?}",
-                log4rs_config_path));
+            fs::write(&log4rs_config_path, log4rs_config).unwrap_or_else(|_| {
+                panic!(
+                    "Failed to write log4rs config file {:?}",
+                    log4rs_config_path
+                )
+            });
         }
 
         // create the .cdirsh file in the home directory
@@ -200,12 +237,94 @@ impl Config {
 
         println!("✓ Configuration is ready. Please restart your shell or run 'source ~/.cdirsh' to apply the changes.");
     }
+
+    fn load_theme(&self, theme: &str) -> Theme {
+        debug!("load_theme: {theme}");
+        let themes_directory_path = match self.themes_directory_path.as_ref() {
+            Some(tp) => tp,
+            None => {
+                error!("Theme directory not defined");
+                panic!("Theme directory not defined");
+            }
+        };
+
+        let theme_path = if themes_directory_path
+            .join(String::from(theme) + ".yml")
+            .exists()
+        {
+            themes_directory_path.join(String::from(theme) + ".yml")
+        } else {
+            themes_directory_path.join(String::from(theme) + ".yaml")
+        };
+
+        let file = match std::fs::File::open(&theme_path) {
+            Ok(file) => file,
+            Err(err) => {
+                error!("Theme not found {:?}:{err}", &theme_path);
+                panic!("Theme not found {:?}:{err}", &theme_path);
+            }
+        };
+
+        match serde_yaml::from_reader(file) {
+            Ok(theme) => theme,
+            Err(err) => {
+                error!("{:?}:{err}", &theme_path);
+                panic!("{:?}:{err}", &theme_path);
+            }
+        }
+    }
+
+    fn install_themes(config_file_path: PathBuf) {
+        let template_dir = config_file_path.parent().unwrap().join("themes");
+        if !template_dir.exists() {
+            std::fs::create_dir(template_dir.clone()).unwrap();
+        }
+        Self::install_theme(
+            template_dir.join("dark-blue.yaml"),
+            include_str!("../themes/dark-blue.yaml"),
+        );
+        Self::install_theme(
+            template_dir.join("dark.yaml"),
+            include_str!("../themes/dark.yaml"),
+        );
+        Self::install_theme(
+            template_dir.join("default.yaml"),
+            include_str!("../themes/default.yaml"),
+        );
+        Self::install_theme(
+            template_dir.join("light-autumn.yaml"),
+            include_str!("../themes/light-autumn.yaml"),
+        );
+        Self::install_theme(
+            template_dir.join("light-joy.yaml"),
+            include_str!("../themes/light-joy.yaml"),
+        );
+        Self::install_theme(
+            template_dir.join("pure.yaml"),
+            include_str!("../themes/pure.yaml"),
+        );
+        Self::install_theme(
+            template_dir.join("winter.yaml"),
+            include_str!("../themes/winter.yaml"),
+        );
+    }
+
+    fn install_theme(theme_path: PathBuf, content: &str) {
+        if theme_path.exists() {
+            return;
+        }
+        std::fs::write(&theme_path, content)
+            .unwrap_or_else(|_| panic!("Failed create the theme file {:?}", theme_path));
+    }
 }
 
 impl Default for Config {
     fn default() -> Self {
         Config {
-            colors: Default::default(),
+            inline_theme: Default::default(),
+            theme: Default::default(),
+            styles: Default::default(),
+            themes_directory_path: Default::default(),
             date_formater: Box::new(|date| date.to_string()),
             db_path: Default::default(),
             log_config_path: Default::default(),
@@ -218,10 +337,13 @@ impl Default for Config {
 impl Clone for Config {
     fn clone(&self) -> Self {
         Config {
+            theme: self.theme.clone(),
+            styles: self.styles.clone(),
+            themes_directory_path: self.themes_directory_path.clone(),
             db_path: self.db_path.clone(),
             log_config_path: self.log_config_path.clone(),
             date_format: self.date_format.clone(),
-            colors: self.colors.clone(),
+            inline_theme: self.inline_theme.clone(),
             // Provide a new default closure for date_formater
             date_formater: Box::new(|date| date.to_string()),
         }

@@ -4,7 +4,7 @@ use log::debug;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Padding, Paragraph};
-use ratatui::{style::Color, DefaultTerminal, Frame};
+use ratatui::{DefaultTerminal, Frame};
 
 pub(crate) fn help_run(terminal: &mut DefaultTerminal, config: &Config) {
     debug!("help_run...");
@@ -15,80 +15,84 @@ pub(crate) fn help_run(terminal: &mut DefaultTerminal, config: &Config) {
 }
 
 fn help_draw(frame: &mut Frame, config: &Config) {
+    let ts = config.styles.text_style.clone();
+    let es = config.styles.text_em_style.clone();
+
     let message = Paragraph::new(vec![
         Line::from(vec![
-            Span::raw("Use "),
-            Span::styled("tab", Style::default().fg(Color::Cyan)),
-            Span::raw(" to switch between the views."),
+            Span::styled("Use ", ts),
+            Span::styled("tab", es),
+            Span::styled(" to switch between the views.", ts),
         ]),
         Line::from(vec![
-            Span::raw("Use "),
-            Span::styled("enter", Style::default().fg(Color::Cyan)),
-            Span::raw(" to exit the GUI and go into the selected directory;"),
+            Span::styled("Use ", ts),
+            Span::styled("enter", es),
+            Span::styled(" to exit the GUI and go into the selected directory;", ts),
         ]),
         Line::from(vec![
-            Span::raw("Use "),
-            Span::styled("esc or ctrl+q", Style::default().fg(Color::Cyan)),
-            Span::raw(" to simply exit and stay in the current directory."),
+            Span::styled("Use ", ts),
+            Span::styled("esc or ctrl+q", es),
+            Span::styled(" to simply exit and stay in the current directory.", ts),
         ]),
         Line::from(vec![
-            Span::raw("Use the "),
-            Span::styled("up", Style::default().fg(Color::Cyan)),
-            Span::raw(" and "),
-            Span::styled("down", Style::default().fg(Color::Cyan)),
-            Span::raw(" arrow keys to select a directory ("),
-            Span::styled("shift", Style::default().fg(Color::Cyan)),
-            Span::raw(" for bigger jumps);"),
+            Span::styled("Use the ", ts),
+            Span::styled("up", es),
+            Span::styled(" and ", ts),
+            Span::styled("down", es),
+            Span::styled(" arrow keys to select a directory (", ts),
+            Span::styled("shift", es),
+            Span::styled(" for bigger jumps);", ts),
         ]),
         Line::from(vec![
-            Span::raw("Use "),
-            Span::styled("page up", Style::default().fg(Color::Cyan)),
-            Span::raw(" and "),
-            Span::styled("page down", Style::default().fg(Color::Cyan)),
-            Span::raw(" to scroll through the list by page;"),
+            Span::styled("Use ", ts),
+            Span::styled("page up", es),
+            Span::styled(" and ", ts),
+            Span::styled("page down", es),
+            Span::styled(" to scroll through the list by page;", ts),
         ]),
         Line::from(vec![
-            Span::raw("Use "),
-            Span::styled("home", Style::default().fg(Color::Cyan)),
-            Span::raw(" to go to the most recent directory in the history (the top);"),
+            Span::styled("Use ", ts),
+            Span::styled("home", es),
+            Span::styled(
+                " to go to the most recent directory in the history (the top);",
+                ts,
+            ),
         ]),
         Line::from(vec![
-            Span::raw("Use "),
-            Span::styled("ctrl+a", Style::default().fg(Color::Cyan)),
-            Span::raw(" to see the full directory path with shortcuts."),
+            Span::styled("Use ", ts),
+            Span::styled("ctrl+a", es),
+            Span::styled(" to see the full directory path with shortcuts.", ts),
         ]),
         Line::from(vec![
-            Span::raw("Use "),
-            Span::styled("ctrl+d", Style::default().fg(Color::Cyan)),
-            Span::raw(" to delete the selected entry."),
+            Span::styled("Use ", ts),
+            Span::styled("ctrl+d", es),
+            Span::styled(" to delete the selected entry.", ts),
         ]),
         Line::from(vec![
-            Span::raw("Use "),
-            Span::styled("ctrl+e", Style::default().fg(Color::Cyan)),
-            Span::raw(" to edit a shortcut description."),
+            Span::styled("Use ", ts),
+            Span::styled("ctrl+e", es),
+            Span::styled(" to edit a shortcut description.", ts),
         ]),
         Line::from(vec![
-            Span::raw("Use "),
-            Span::styled("ctrl+h", Style::default().fg(Color::Cyan)),
-            Span::raw(" for the help screen."),
+            Span::styled("Use ", ts),
+            Span::styled("ctrl+h", es),
+            Span::styled(" for the help screen.", ts),
         ]),
-        Line::from(vec![Span::raw("Enter a text to filter.")]),
+        Line::from(""),
+        Line::from(vec![Span::styled("Enter a text to filter.", ts)]),
     ])
     .block(
         Block::default()
             .padding(Padding::new(1, 1, 1, 1))
             .title(Span::styled(
                 " cdir help ",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(ratatui::style::Modifier::BOLD),
+                config.styles.title_style.clone(),
             ))
             .borders(Borders::ALL),
     );
     // Fill the frame with the background color if defined
-    if let Some(bg_color) = &config.colors.background {
-        let background =
-            Paragraph::new("").style(Style::default().bg(bg_color.parse::<Color>().unwrap()));
+    if let Some(bg_color) = &config.styles.background_color {
+        let background = Paragraph::new("").style(Style::default().bg(bg_color.clone()));
         frame.render_widget(background, frame.area());
     }
     frame.render_widget(message, frame.area());

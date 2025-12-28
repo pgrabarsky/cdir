@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::confirmation::Confirmation;
 use crate::model::{DataViewModel, ListFunction};
+use crate::theme::ThemeStyles;
 use crossterm::event;
 use crossterm::event::{Event, KeyCode, KeyModifiers};
 use log::{debug, trace, warn};
@@ -9,7 +10,6 @@ use ratatui::prelude::{Color, Style};
 use ratatui::style::Stylize;
 use ratatui::widgets::{Paragraph, Row, Table, TableState};
 use ratatui::{DefaultTerminal, Frame};
-use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -17,62 +17,8 @@ use std::sync::{Arc, Mutex};
 const TABLE_HEADER_LENGTH: usize = 1;
 const JUMP_OFFSET: usize = 10;
 
-const DEFAULT_BACKGROUND_COLOR: fn() -> Option<String> = || None;
-const DEFAULT_COLOR_DATE: fn() -> String = || String::from("#888888");
-const DEFAULT_COLOR_PATH: fn() -> String = || String::from("#67b4b8");
-const DEFAULT_COLOR_HIGHLIGHT: fn() -> String = || String::from("#ffe680");
-const DEFAULT_COLOR_SHORTCUT_NAME: fn() -> String = || String::from("#00aa00");
-
-const DEFAULT_COLOR_FG_HEADER: fn() -> String = || String::from("White");
-const DEFAULT_COLOR_BG_HEADER: fn() -> String = || String::from("#1f2d6c");
-
-const DEFAULT_COLOR_DESCRIPTION: fn() -> String = || String::from("#808080");
-
 const TABLE_COLUMN_SPACING: u16 = 1;
 const TABLE_HIGHLIGHT_SYMBOL: &str = "> ";
-
-/// Represents the color configuration for various UI elements.
-#[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
-pub struct Colors {
-    #[serde(default = "DEFAULT_BACKGROUND_COLOR")]
-    pub background: Option<String>,
-
-    #[serde(default = "DEFAULT_COLOR_DATE")]
-    pub date: String,
-
-    #[serde(default = "DEFAULT_COLOR_PATH")]
-    pub path: String,
-
-    #[serde(default = "DEFAULT_COLOR_HIGHLIGHT")]
-    pub highlight: String,
-
-    #[serde(default = "DEFAULT_COLOR_SHORTCUT_NAME")]
-    pub shortcut_name: String,
-
-    #[serde(default = "DEFAULT_COLOR_FG_HEADER")]
-    pub header_fg: String,
-
-    #[serde(default = "DEFAULT_COLOR_BG_HEADER")]
-    pub header_bg: String,
-
-    #[serde(default = "DEFAULT_COLOR_DESCRIPTION")]
-    pub description: String,
-}
-
-impl Default for Colors {
-    fn default() -> Self {
-        Colors {
-            background: DEFAULT_BACKGROUND_COLOR(),
-            date: DEFAULT_COLOR_DATE(),
-            path: DEFAULT_COLOR_PATH(),
-            highlight: DEFAULT_COLOR_HIGHLIGHT(),
-            shortcut_name: DEFAULT_COLOR_SHORTCUT_NAME(),
-            header_fg: DEFAULT_COLOR_FG_HEADER(),
-            header_bg: DEFAULT_COLOR_BG_HEADER(),
-            description: DEFAULT_COLOR_DESCRIPTION(),
-        }
-    }
-}
 
 /// Represents the possible results of a GUI action.
 pub enum GuiResult {
@@ -105,7 +51,7 @@ pub struct TableView<'store, T: Clone, S> {
     rowify: RowifyFn<'store, T>,
     stringify: fn(&T) -> String,
     search_string: Arc<Mutex<String>>,
-    colors: Colors,
+    styles: ThemeStyles,
     view_state: Rc<RefCell<S>>,
     delete_fn: DeleteFn<'store, T>,
     modal_view: Option<Box<dyn ModalView<T>>>,
@@ -150,7 +96,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             rowify,
             stringify,
             search_string,
-            colors: config.colors.clone(),
+            styles: config.styles.clone(),
             view_state,
             delete_fn,
             modal_view,
@@ -384,7 +330,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             self.confirmation_view = Some(Box::new(Confirmation::new(
                 String::from("Deletion of?\n")
                     + (self.stringify)(&items[current_row.unwrap()]).as_str(),
-                self.colors.clone(),
+                self.styles.clone(),
             )));
             self.confirmation_active = true;
 
@@ -421,10 +367,9 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
     /// Draw the table view on the given frame.
     fn draw(&mut self, frame: &mut Frame) {
         // Fill the frame with the background color if defined
-        if let Some(bg_color) = &self.colors.background {
+        if let Some(bg_color) = &self.styles.background_color {
             let area = frame.area();
-            let background =
-                Paragraph::new("").style(Style::default().bg(bg_color.parse::<Color>().unwrap()));
+            let background = Paragraph::new("").style(Style::default().bg(*bg_color));
             frame.render_widget(background, area);
         }
 
@@ -432,6 +377,14 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
         let [main, input] = vertical.areas(frame.area());
         self.table_rows_count = main.height - TABLE_HEADER_LENGTH as u16;
         debug!("self.table_rows_count={}", self.table_rows_count);
+
+        // Left background
+        if let Some(left_bg_color) = &self.styles.left_background_color {
+            let cols = Layout::horizontal([Constraint::Length(22), Constraint::Fill(1)]);
+            let background = Paragraph::new("").style(Style::default().bg(*left_bg_color));
+            let [left, _] = cols.areas(main);
+            frame.render_widget(background, left);
+        }
 
         let search_string_lock = self.search_string.lock().unwrap();
         let search_string = search_string_lock.clone();
@@ -459,17 +412,29 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             Layout::horizontal([Constraint::Percentage(90), Constraint::Percentage(10)]).spacing(0);
         let [left, right] = horizontal.areas(input);
 
-        let pa = Paragraph::new(format!("> {}", search_string.as_str()))
-            .style(Style::default().fg(self.colors.path.parse::<Color>().unwrap()));
+        // Draw the free text area
+        let pa = Paragraph::new(format!("> {}_", search_string.as_str())).style(
+            self.styles
+                .path_style
+                .bg(self.styles.free_text_area_bg_color.unwrap()),
+        );
         frame.render_widget(pa, left);
 
         let pb = if self.data_model.length > 0 {
             Paragraph::new("")
-                .style(Style::default().fg(Color::Black))
+                .style(
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(self.styles.free_text_area_bg_color.unwrap()),
+                )
                 .alignment(Alignment::Center)
         } else {
             Paragraph::new("no entry")
-                .style(Style::default().fg(Color::Black))
+                .style(
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(self.styles.free_text_area_bg_color.unwrap()),
+                )
                 .bg(Color::Red)
                 .alignment(Alignment::Center)
         };
@@ -559,19 +524,13 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             .header(
                 Row::new(self.column_names.clone()).style(
                     Style::new()
-                        .fg(self.colors.header_fg.parse().unwrap())
-                        .bg(self.colors.header_bg.parse().unwrap())
+                        .bg(self.styles.header_bg_color.unwrap())
+                        .fg(self.styles.header_fg_color.unwrap())
                         .bold(),
                 ),
             )
             .column_spacing(TABLE_COLUMN_SPACING)
-            .style(Color::Black)
-            .row_highlight_style(
-                Style::new()
-                    .black()
-                    .bg(self.colors.highlight.parse().unwrap())
-                    .bold(),
-            )
+            .row_highlight_style(Style::new().bg(self.styles.highlight_color.unwrap()).bold())
             .highlight_symbol(TABLE_HIGHLIGHT_SYMBOL);
 
         if self.selected_row().is_none() && self.data_model.length > 0 {

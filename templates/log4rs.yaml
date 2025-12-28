@@ -21,14 +21,14 @@ appenders:
         pattern: "__DATA_PATH__/cdir_{}.log"
 
 root:
-  level: trace
+  level: info
   appenders:
 #    - stdout
     - file
 
 loggers:
   app::cdir:
-    level: trace
+    level: info
     appenders:
       - file
     additive: false

@@ -1,4 +1,5 @@
-use crate::tableview::{Colors, ModalView};
+use crate::tableview::ModalView;
+use crate::theme::ThemeStyles;
 use crossterm::event::{Event, KeyCode};
 use log::debug;
 use ratatui::layout::{Constraint, Direction, Layout};
@@ -7,7 +8,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 pub struct Confirmation {
-    colors: Colors,
+    styles: ThemeStyles,
     pub message: String,
     selected: ConfirmationButton,
     pub result: Option<bool>, // Some(true) for Yes, Some(false) for Cancel, None for undecided
@@ -20,9 +21,9 @@ enum ConfirmationButton {
 }
 
 impl Confirmation {
-    pub fn new(message: String, colors: Colors) -> Self {
+    pub fn new(message: String, styles: ThemeStyles) -> Self {
         Self {
-            colors,
+            styles,
             message,
             selected: ConfirmationButton::Yes,
             result: None,
@@ -70,7 +71,7 @@ impl ModalView<bool> for Confirmation {
         let min_width = 32; // Minimum width for UI/buttons
         let padding = 8; // Padding for left/right
         let modal_width = std::cmp::max(min_width, max_line_len + padding) as u16;
-        let modal_height = 9;
+        let modal_height = 7;
 
         // Modal area: center of the screen, dynamic width
         let area = frame.area();
@@ -96,16 +97,17 @@ impl ModalView<bool> for Confirmation {
 
         frame.render_widget(Clear, modal_area);
         // Optional: background color for modal
-        if let Some(bg_color) = &self.colors.background {
-            let background =
-                Paragraph::new("").style(Style::default().bg(bg_color.parse::<Color>().unwrap()));
+        if let Some(bg_color) = &self.styles.background_color {
+            let background = Paragraph::new("").style(Style::default().bg(bg_color.clone()));
             frame.render_widget(background, modal_area);
         }
 
         let block = Block::default()
-            .borders(Borders::ALL)
             .title("Confirmation")
-            .style(Style::default().fg(self.colors.path.parse().unwrap()));
+            .title_style(self.styles.title_style.clone())
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(self.styles.border_color.unwrap()))
+            .style(self.styles.text_style.clone());
         frame.render_widget(block, modal_area);
 
         // Split modal into title, message, buttons
