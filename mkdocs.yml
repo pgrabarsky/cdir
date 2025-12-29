@@ -1,0 +1,59 @@
+site_name: cdir
+repo_url: https://github.com/AmadeusITGroup/cdir
+nav:
+  - Home: index.md
+  - Features: features.md
+  - Commands: commands.md
+  - UI Navigation: navigation.md
+  - Installation: installation.md
+  - Configuration: configuration.md
+  - Importing Shortcuts: importing_shortcuts.md
+  - Shell promp: prompt.md
+  - License: license.md
+theme:
+  name: material
+  palette:
+    primary: indigo
+    accent: indigo
+  font:
+    text: "open sans"
+  features:
+    - content.code.copy
+  icon:
+    logo: material/folder-swap
+  favicon: assets/folder-swap.png
+
+extra_css:
+  - stylesheets/asciinema-player.css
+  - stylesheets/extra.css
+extra_javascript:
+  - javascripts/asciinema-player.min.js
+  - javascripts/extra.js
+plugins:
+ - asciinema-player
+ - search
+markdown_extensions:
+  - def_list
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+extra:
+  generator: false
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/AmadeusITGroup/cdir
+
+copyright: <a href="https://github.com/AmadeusITGroup/cdir/blob/master/LICENSE">Copyright &copy; 2025 Amadeus IT Group SA</a>
