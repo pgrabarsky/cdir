@@ -81,7 +81,7 @@ fn initialize_logs(config_path: &Option<PathBuf>) {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
-    let config = match Config::load(args.config_file.clone()) {
+    let mut config = match Config::load(args.config_file.clone()) {
         Ok(config) => config,
         Err(e) => {
             error!("{}", e);
@@ -89,6 +89,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     };
     initialize_logs(&config.log_config_path);
+    config.process();
 
     info!("Starting with args={args:?}");
 
