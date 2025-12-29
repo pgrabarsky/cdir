@@ -4,21 +4,27 @@ db_path: __DATA_PATH__/cdir.db
 # Path to the log configuration file
 log_config_path: __CONFIG_PATH__/log4rs.yaml
 
+# Theme
+# These ones are provided by default (check your "themes" directory):
+# - default
+# - dark-blue
+# - dark
+# - light-autumn
+# - light-joy
+# - pure
+# - winter
+
+#theme: dark-blue
+
 # Custom date format (see: https://docs.rs/chrono/0.4.38/chrono/format/strftime/index.html)
 # date_format: "%d-%b-%y %H:%M"
 
-# Example of colors for a light theme:
-# colors:
+# Theme theme can be overriden here:
+# inline_theme:
 #   date: "#808080"
+#   date_bold: true
 #   path: "#000000"
 #   highlight: "#eee680"
 #   shortcut_name: "#008800"
 #   description: "#808080"
-
-# # Example of colors for a dark theme:
-# colors:
-#  date: "#aaaaaa"
-#  path: "#dddddd"
-#  highlight: "#eded26"
-#  shortcut_name: "#00bb00"
-#  description: "#a0a0a0"
+#   ...

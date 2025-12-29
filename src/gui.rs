@@ -6,12 +6,9 @@ use crate::tableview::{GuiResult, RowifyFn, TableView};
 use std::cell::RefCell;
 
 use log::debug;
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::{
-    style::{Color, Stylize},
-    widgets::Row,
-    DefaultTerminal,
-};
+use ratatui::{DefaultTerminal, widgets::Row};
 
 use crate::shortcut_editor::ShortcutEditor;
 use ratatui::layout::Constraint;
@@ -36,7 +33,7 @@ struct Gui<'a> {
 
 impl<'a> Gui<'a> {
     /// Return a Line with where HOME is replaced by '~'
-    fn reduce_path(path: &String, size: u16) -> Line<'_> {
+    fn reduce_path(path: &String, size: u16, home_tild_style: Style) -> Line<'_> {
         if size == 0 {
             return Line::from("");
         }
@@ -46,10 +43,9 @@ impl<'a> Gui<'a> {
             Ok(home) => {
                 let spm = home.clone() + "/";
                 if path.starts_with(&spm) || path == home.as_str() {
-                    //Span::from("~").fg(Color::DarkGray) + Span::from(&path.path[(spm.len() - 1)..])
-                    Self::do_reduce_path(path, home, size)
+                    Self::do_reduce_path(path, home, size, home_tild_style)
                 } else {
-                    Self::reduce_string(path, size as usize) // Line::from(Span::from(path.path.clone()))
+                    Self::reduce_string(path, size as usize)
                 }
             }
             Err(_) => Self::reduce_string(path, size as usize),
@@ -65,17 +61,22 @@ impl<'a> Gui<'a> {
         Line::from(Span::from(format!("*{}", path_suffix)))
     }
 
-    fn do_reduce_path(path: &String, home: String, size: u16) -> Line<'static> {
+    fn do_reduce_path(
+        path: &String,
+        home: String,
+        size: u16,
+        home_tild_style: Style,
+    ) -> Line<'static> {
         if path == &home {
-            return Line::from("~").fg(Color::DarkGray);
+            return Line::from(Span::from("~").style(home_tild_style));
         }
 
         if size == 1 {
             return Line::from("*");
         } else if size == 2 {
-            return Line::from("~*");
+            return Span::from("~").style(home_tild_style) + Span::from("*");
         } else if size == 3 {
-            return Line::from("~/*");
+            return Span::from("~").style(home_tild_style) + Span::from("/*");
         }
 
         let path_suffix = &path[home.len() + 1..];
@@ -83,10 +84,12 @@ impl<'a> Gui<'a> {
         if path_suffix.len() > remaining_size {
             let start_index = path_suffix.len() - remaining_size + 1;
             let path_suffix = format!("*{}", &path_suffix[start_index..]);
-            return Span::from("~").fg(Color::DarkGray) + Span::from("/") + Span::from(path_suffix);
+            return Span::from("~").style(home_tild_style)
+                + Span::from("/")
+                + Span::from(path_suffix);
         }
 
-        Span::from("~").fg(Color::DarkGray) + Span::from(path[home.len()..].to_string())
+        Span::from("~").style(home_tild_style) + Span::from(path[home.len()..].to_string())
     }
 
     /// Return a Line where the longest matching shortcut path is replaced by the shortcut name
@@ -104,7 +107,6 @@ impl<'a> Gui<'a> {
 
         let mut shortened_line: Option<Line> = None;
         let mut cpath = "";
-        let scc = config.colors.shortcut_name.parse::<Color>().unwrap();
         for shortcut in shortcuts {
             if !allow_shortcut_exact_match && path == &shortcut.path {
                 continue;
@@ -114,24 +116,34 @@ impl<'a> Gui<'a> {
                 && shortcut.path.len() > cpath.len()
             {
                 cpath = shortcut.path.as_str();
-                shortened_line = Some(Self::do_shorten_path(path, scc, shortcut, size));
+                shortened_line = Some(Self::do_shorten_path(
+                    path,
+                    &config.styles.shortcut_name_style,
+                    shortcut,
+                    size,
+                ));
             }
         }
         shortened_line
     }
 
-    fn do_shorten_path(path: &String, scc: Color, shortcut: &Shortcut, size: u16) -> Line<'static> {
+    fn do_shorten_path(
+        path: &String,
+        style: &Style,
+        shortcut: &Shortcut,
+        size: u16,
+    ) -> Line<'static> {
         if shortcut.name.len() + 3 == size as usize {
-            return Span::from("[").fg(scc)
-                + Span::from(shortcut.name.clone()).fg(scc)
-                + Span::from("]").fg(scc)
+            return Span::from("[").style(style.clone())
+                + Span::from(shortcut.name.clone()).style(style.clone())
+                + Span::from("]").style(style.clone())
                 + Span::from("*");
         } else if shortcut.name.len() + 3 > size as usize {
             return Line::from("*");
         }
-        let mut result_path = Span::from("[").fg(scc)
-            + Span::from(shortcut.name.clone()).fg(scc)
-            + Span::from("]").fg(scc);
+        let mut result_path = Span::from("[").style(style.clone())
+            + Span::from(shortcut.name.clone()).style(style.clone())
+            + Span::from("]").style(style.clone());
 
         // if the path is an exact match of the shortcut, return it directly
         if path == shortcut.path.as_str() {
@@ -169,14 +181,14 @@ impl<'a> Gui<'a> {
         let view_state = view_state.clone();
         Box::new(move |paths: &[Path], size: &[u16]| {
             let shortcuts: Vec<Shortcut> = store.list_all_shortcuts().unwrap();
-            let date_color = config.colors.date.parse::<Color>().unwrap();
-            let path_color = config.colors.path.parse::<Color>().unwrap();
             paths
                 .iter()
                 .map(|path| {
                     // format the date
-                    let date: Line =
-                        Line::from(Span::from((config.date_formater)(path.date)).fg(date_color));
+                    let date: Line = Line::from(
+                        Span::from((config.date_formater)(path.date))
+                            .style(config.styles.date_style.clone()),
+                    );
 
                     // format the path
                     let shortened_line = match *view_state.borrow() {
@@ -184,8 +196,14 @@ impl<'a> Gui<'a> {
                         false => None,
                     };
                     let path = shortened_line
-                        .unwrap_or_else(|| Self::reduce_path(&path.path, size[1]))
-                        .fg(path_color);
+                        .unwrap_or_else(|| {
+                            Self::reduce_path(
+                                &path.path,
+                                size[1],
+                                config.styles.home_tilde_style.clone(),
+                            )
+                        })
+                        .style(config.styles.path_style);
 
                     vec![date, path]
                 })
@@ -230,9 +248,6 @@ impl<'a> Gui<'a> {
     ) -> RowifyFn<'a, store::Shortcut> {
         let view_state = view_state.clone();
         Box::new(move |shortcuts: &[Shortcut], size: &[u16]| {
-            let scc = config.colors.shortcut_name.parse::<Color>().unwrap();
-            let sdc = config.colors.description.parse::<Color>().unwrap();
-            let path_color = config.colors.path.parse::<Color>().unwrap();
             shortcuts
                 .iter()
                 .map(|shortcut| {
@@ -251,14 +266,23 @@ impl<'a> Gui<'a> {
                         false => None,
                     };
                     let path = shortened_line
-                        .unwrap_or_else(|| Self::reduce_path(&shortcut.path, size[1]))
-                        .fg(path_color);
+                        .unwrap_or_else(|| {
+                            Self::reduce_path(
+                                &shortcut.path,
+                                size[1],
+                                config.styles.home_tilde_style.clone(),
+                            )
+                        })
+                        .style(config.styles.path_style.clone());
 
                     Row::new(vec![
-                        Line::from(Span::from(shortcut.name.clone()).fg(scc)),
+                        Line::from(
+                            Span::from(shortcut.name.clone())
+                                .style(config.styles.shortcut_name_style.clone()),
+                        ),
                         path,
                         Line::from(shortcut.description.as_ref().map_or("", |s| s.as_str()))
-                            .fg(sdc),
+                            .style(config.styles.description_style.clone()),
                     ])
                 })
                 .collect()
@@ -521,13 +545,15 @@ mod tests {
     fn test_reduce_path_home_replacement() {
         // Set HOME to a known value
         let home = "/home/testuser";
-        env::set_var("HOME", home);
+        unsafe {
+            env::set_var("HOME", home);
+        }
         let path = Path {
             id: 1,
             path: format!("{}/project", home),
             date: 0,
         };
-        let line = Gui::reduce_path(&path.path, 80);
+        let line = Gui::reduce_path(&path.path, 80, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "~/project");
     }
@@ -535,26 +561,30 @@ mod tests {
     #[test]
     fn test_reduce_path_exact_home() {
         let home = "/home/testuser";
-        env::set_var("HOME", home);
+        unsafe {
+            env::set_var("HOME", home);
+        }
         let path = Path {
             id: 1,
             path: home.to_string(),
             date: 0,
         };
-        let line = Gui::reduce_path(&path.path, 80);
+        let line = Gui::reduce_path(&path.path, 80, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "~");
     }
 
     #[test]
     fn test_reduce_path_no_home_match() {
-        env::set_var("HOME", "/home/testuser");
+        unsafe {
+            env::set_var("HOME", "/home/testuser");
+        }
         let path = Path {
             id: 1,
             path: "/other/path/project".to_string(),
             date: 0,
         };
-        let line = Gui::reduce_path(&path.path, 80);
+        let line = Gui::reduce_path(&path.path, 80, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "/other/path/project");
     }
@@ -562,34 +592,36 @@ mod tests {
     #[test]
     fn test_reduce_path_with_home_limited_size() {
         let home = "/home/testuser";
-        env::set_var("HOME", home);
+        unsafe {
+            env::set_var("HOME", home);
+        }
         let path = Path {
             id: 1,
             path: format!("{}/project", home),
             date: 0,
         };
 
-        let line = Gui::reduce_path(&path.path, 9);
+        let line = Gui::reduce_path(&path.path, 9, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "~/project");
 
-        let line = Gui::reduce_path(&path.path, 8);
+        let line = Gui::reduce_path(&path.path, 8, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "~/*oject");
 
-        let line = Gui::reduce_path(&path.path, 4);
+        let line = Gui::reduce_path(&path.path, 4, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "~/*t");
 
-        let line = Gui::reduce_path(&path.path, 3);
+        let line = Gui::reduce_path(&path.path, 3, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "~/*");
 
-        let line = Gui::reduce_path(&path.path, 2);
+        let line = Gui::reduce_path(&path.path, 2, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "~*");
 
-        let line = Gui::reduce_path(&path.path, 1);
+        let line = Gui::reduce_path(&path.path, 1, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "*");
     }
@@ -597,18 +629,20 @@ mod tests {
     #[test]
     fn test_reduce_path_with_home_exact_limited_size() {
         let home = "/home/testuser";
-        env::set_var("HOME", home);
+        unsafe {
+            env::set_var("HOME", home);
+        }
         let path = Path {
             id: 1,
             path: home.to_string(),
             date: 0,
         };
 
-        let line = Gui::reduce_path(&path.path, 2);
+        let line = Gui::reduce_path(&path.path, 2, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "~");
 
-        let line = Gui::reduce_path(&path.path, 1);
+        let line = Gui::reduce_path(&path.path, 1, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "~");
     }
@@ -616,18 +650,20 @@ mod tests {
     #[test]
     fn test_reduce_path_without_home_limited_size() {
         let home = "/home/testuser";
-        env::set_var("HOME", home);
+        unsafe {
+            env::set_var("HOME", home);
+        }
         let path = Path {
             id: 1,
             path: "/other/path/project".to_string(),
             date: 0,
         };
 
-        let line = Gui::reduce_path(&path.path, 19);
+        let line = Gui::reduce_path(&path.path, 19, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "/other/path/project");
 
-        let line = Gui::reduce_path(&path.path, 18);
+        let line = Gui::reduce_path(&path.path, 18, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "*ther/path/project");
     }

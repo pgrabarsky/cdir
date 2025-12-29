@@ -1,0 +1,12 @@
+background: "#000000"
+date: "#7c95bf"
+date_bold: true
+path: "#bcbcbc"
+shortcut_name: "#3ea865"
+highlight: "#156996"
+text_em: "#00aa00"
+text: "#eeeeee"
+header_bg: "#1939a6"
+title: "#749bfc"
+title_bold: true
+free_text_area_bg: "#111833"

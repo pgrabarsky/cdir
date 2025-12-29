@@ -7,6 +7,7 @@ mod model;
 mod shortcut_editor;
 mod store;
 mod tableview;
+mod theme;
 
 use crate::expimp::load_shortcuts_from_yaml;
 use clap::{Parser, Subcommand};

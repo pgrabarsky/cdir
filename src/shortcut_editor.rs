@@ -5,7 +5,7 @@ use crate::tableview::ModalView;
 use crossterm::event::{Event, KeyCode};
 use log::{debug, error};
 use ratatui::layout::{Constraint, Layout};
-use ratatui::style::{Color, Style};
+use ratatui::style::Style;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 use tui_textarea::{Input, TextArea};
@@ -37,14 +37,10 @@ impl ModalView<Shortcut> for ShortcutEditor {
             Block::default()
                 .borders(Borders::ALL)
                 .title(format!("Description of '{}'", item.name.clone()))
-                .title_style(Style::default().fg(self.config.colors.path.parse::<Color>().unwrap()))
-                .border_style(
-                    Style::default().fg(self.config.colors.path.parse::<Color>().unwrap()),
-                ),
+                .title_style(self.config.styles.title_style.clone())
+                .border_style(Style::default().fg(self.config.styles.border_color.unwrap())),
         );
-        textarea.set_cursor_line_style(
-            Style::default().fg(self.config.colors.description.parse::<Color>().unwrap()),
-        );
+        textarea.set_cursor_line_style(self.config.styles.text_style.clone());
         if let Some(description) = self.shortcut.as_ref().unwrap().description.as_ref() {
             textarea.insert_str(description.as_str());
         }
@@ -112,9 +108,8 @@ impl ModalView<Shortcut> for ShortcutEditor {
 
         frame.render_widget(Clear, chunks[1]);
         // Fill the frame with the background color if defined
-        if let Some(bg_color) = &self.config.colors.background {
-            let background =
-                Paragraph::new("").style(Style::default().bg(bg_color.parse::<Color>().unwrap()));
+        if let Some(bg_color) = &self.config.styles.background_color {
+            let background = Paragraph::new("").style(Style::default().bg(bg_color.clone()));
             frame.render_widget(background, chunks[1]);
         }
 
