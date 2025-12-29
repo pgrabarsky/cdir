@@ -7,13 +7,17 @@ mod model;
 mod shortcut_editor;
 mod store;
 mod tableview;
+mod text_to_ansi;
 mod theme;
 
 use crate::expimp::load_shortcuts_from_yaml;
+use crate::store::Shortcut;
+use crate::text_to_ansi::text_to_ansi;
 use clap::{Parser, Subcommand};
 use config::Config;
 use expimp::load_paths_from_yaml;
 use log::{debug, error, info};
+use ratatui::text::Text;
 use std::error::Error;
 use std::fs::File;
 use std::io::Write;
@@ -56,6 +60,15 @@ enum Commands {
     ImportShortcuts { filename: String },
     /// Print last paths
     Lasts,
+    /// Pretty print a path using shortcuts
+    PrettyPrintPath {
+        /// the path to pretty print
+        path: String,
+        /// whether to apply style (default is true)
+        style: Option<bool>,
+        /// if set, the maximum width of the string
+        max_width: Option<u16>,
+    },
 }
 
 fn initialize_logs(config_path: &Option<PathBuf>) {
@@ -147,6 +160,25 @@ fn main() -> Result<(), Box<dyn Error>> {
             let list = store.list_paths(0, 10, "").unwrap();
             list.iter()
                 .for_each(|s| println!("{} {}", (config.date_formater)(s.date), s.path));
+        }
+        Some(Commands::PrettyPrintPath {
+            path,
+            style,
+            max_width,
+        }) => {
+            let max_width = max_width.unwrap_or(u16::MAX);
+            let shortcuts: Vec<Shortcut> = store.list_all_shortcuts().unwrap();
+            let shortened_line = gui::Gui::shorten_path(&config, &shortcuts, path, max_width, true);
+            let shortened_line = shortened_line
+                .unwrap_or_else(|| {
+                    gui::Gui::reduce_path(path, max_width, config.styles.home_tilde_style)
+                })
+                .style(config.styles.path_style);
+            if style.is_none_or(|s| s) {
+                print!("{}", text_to_ansi(&Text::from(shortened_line)));
+            } else {
+                print!("{}", shortened_line);
+            }
         }
         None => {
             println!("Use the 'c' shell alias to launch the GUI.");

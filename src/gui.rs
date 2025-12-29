@@ -23,7 +23,7 @@ enum View {
 }
 
 /// The main application structure
-struct Gui<'a> {
+pub(crate) struct Gui<'a> {
     config: &'a Config,
     terminal: DefaultTerminal,
     current_view: View,
@@ -33,7 +33,7 @@ struct Gui<'a> {
 
 impl<'a> Gui<'a> {
     /// Return a Line with where HOME is replaced by '~'
-    fn reduce_path(path: &String, size: u16, home_tild_style: Style) -> Line<'_> {
+    pub(crate) fn reduce_path(path: &String, size: u16, home_tild_style: Style) -> Line<'_> {
         if size == 0 {
             return Line::from("");
         }
@@ -94,7 +94,7 @@ impl<'a> Gui<'a> {
 
     /// Return a Line where the longest matching shortcut path is replaced by the shortcut name
     /// If no substitution is possible, return None
-    fn shorten_path(
+    pub(crate) fn shorten_path(
         config: &Config,
         shortcuts: &[Shortcut],
         path: &String,
