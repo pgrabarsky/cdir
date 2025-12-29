@@ -114,7 +114,9 @@ impl Config {
         // process themes:
         let mut external_theme = Theme::default();
         if let Some(theme) = config.theme.as_ref() {
-            external_theme = config.load_theme(theme).merge(&external_theme);
+            if let Some(theme) = config.load_theme(theme) {
+                external_theme = theme.merge(&external_theme);
+            }
         }
         let actual_theme = config.inline_theme.merge(&external_theme);
 
@@ -235,10 +237,12 @@ impl Config {
             }
         }
 
-        println!("✓ Configuration is ready. Please restart your shell or run 'source ~/.cdirsh' to apply the changes.");
+        println!(
+            "✓ Configuration is ready. Please restart your shell or run 'source ~/.cdirsh' to apply the changes."
+        );
     }
 
-    fn load_theme(&self, theme: &str) -> Theme {
+    fn load_theme(&self, theme: &str) -> Option<Theme> {
         debug!("load_theme: {theme}");
         let themes_directory_path = match self.themes_directory_path.as_ref() {
             Some(tp) => tp,
@@ -261,7 +265,7 @@ impl Config {
             Ok(file) => file,
             Err(err) => {
                 error!("Theme not found {:?}:{err}", &theme_path);
-                panic!("Theme not found {:?}:{err}", &theme_path);
+                return None;
             }
         };
 
@@ -269,7 +273,7 @@ impl Config {
             Ok(theme) => theme,
             Err(err) => {
                 error!("{:?}:{err}", &theme_path);
-                panic!("{:?}:{err}", &theme_path);
+                None
             }
         }
     }
