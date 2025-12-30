@@ -134,16 +134,16 @@ impl<'a> Gui<'a> {
         size: u16,
     ) -> Line<'static> {
         if shortcut.name.len() + 3 == size as usize {
-            return Span::from("[").style(style.clone())
-                + Span::from(shortcut.name.clone()).style(style.clone())
-                + Span::from("]").style(style.clone())
+            return Span::from("[").style(*style)
+                + Span::from(shortcut.name.clone()).style(*style)
+                + Span::from("]").style(*style)
                 + Span::from("*");
         } else if shortcut.name.len() + 3 > size as usize {
             return Line::from("*");
         }
-        let mut result_path = Span::from("[").style(style.clone())
-            + Span::from(shortcut.name.clone()).style(style.clone())
-            + Span::from("]").style(style.clone());
+        let mut result_path = Span::from("[").style(*style)
+            + Span::from(shortcut.name.clone()).style(*style)
+            + Span::from("]").style(*style);
 
         // if the path is an exact match of the shortcut, return it directly
         if path == shortcut.path.as_str() {
@@ -187,7 +187,7 @@ impl<'a> Gui<'a> {
                     // format the date
                     let date: Line = Line::from(
                         Span::from((config.date_formater)(path.date))
-                            .style(config.styles.date_style.clone()),
+                            .style(config.styles.date_style),
                     );
 
                     // format the path
@@ -200,7 +200,7 @@ impl<'a> Gui<'a> {
                             Self::reduce_path(
                                 &path.path,
                                 size[1],
-                                config.styles.home_tilde_style.clone(),
+                                config.styles.home_tilde_style,
                             )
                         })
                         .style(config.styles.path_style);
@@ -270,19 +270,19 @@ impl<'a> Gui<'a> {
                             Self::reduce_path(
                                 &shortcut.path,
                                 size[1],
-                                config.styles.home_tilde_style.clone(),
+                                config.styles.home_tilde_style,
                             )
                         })
-                        .style(config.styles.path_style.clone());
+                        .style(config.styles.path_style);
 
                     Row::new(vec![
                         Line::from(
                             Span::from(shortcut.name.clone())
-                                .style(config.styles.shortcut_name_style.clone()),
+                                .style(config.styles.shortcut_name_style),
                         ),
                         path,
                         Line::from(shortcut.description.as_ref().map_or("", |s| s.as_str()))
-                            .style(config.styles.description_style.clone()),
+                            .style(config.styles.description_style),
                     ])
                 })
                 .collect()

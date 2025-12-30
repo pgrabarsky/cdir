@@ -157,7 +157,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
                         KeyCode::Enter => {
                             break self
                                 .handle_chosen()
-                                .map_or(GuiResult::Quit, GuiResult::Print)
+                                .map_or(GuiResult::Quit, GuiResult::Print);
                         }
                         KeyCode::Home => {
                             self.data_model.update(
@@ -356,11 +356,11 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
                 }
             };
         }
-        if let Some(modal) = &mut self.modal_view {
-            if let Some(items) = &self.data_model.entries {
-                modal.initialize(&items[current_row]);
-                self.modal_active = true;
-            }
+        if let Some(modal) = &mut self.modal_view
+            && let Some(items) = &self.data_model.entries
+        {
+            modal.initialize(&items[current_row]);
+            self.modal_active = true;
         }
     }
 
@@ -441,15 +441,16 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
 
         frame.render_widget(pb, right);
 
-        if self.modal_active {
-            if let Some(modal) = &mut self.modal_view {
-                modal.draw(frame);
-            }
+        if self.modal_active
+            && let Some(modal) = &mut self.modal_view
+        {
+            modal.draw(frame);
         }
-        if self.confirmation_active {
-            if let Some(confirmation) = &mut self.confirmation_view {
-                confirmation.draw(frame);
-            }
+        
+        if self.confirmation_active
+            && let Some(confirmation) = &mut self.confirmation_view
+        {
+            confirmation.draw(frame);
         }
     }
 
@@ -504,8 +505,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
     pub fn render_table(&mut self, frame: &mut Frame, area: Rect) {
         trace!(
             "render_table data_first={} data_length={}",
-            self.data_model.first,
-            self.data_model.length
+            self.data_model.first, self.data_model.length
         );
 
         let actual_width = Self::resolve_column_widths(

@@ -4,10 +4,10 @@ use crate::store::Shortcut;
 use crate::tableview::ModalView;
 use crossterm::event::{Event, KeyCode};
 use log::{debug, error};
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::Style;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
-use ratatui::Frame;
 use tui_textarea::{Input, TextArea};
 
 pub struct ShortcutEditor {
@@ -37,10 +37,10 @@ impl ModalView<Shortcut> for ShortcutEditor {
             Block::default()
                 .borders(Borders::ALL)
                 .title(format!("Description of '{}'", item.name.clone()))
-                .title_style(self.config.styles.title_style.clone())
+                .title_style(self.config.styles.title_style)
                 .border_style(Style::default().fg(self.config.styles.border_color.unwrap())),
         );
-        textarea.set_cursor_line_style(self.config.styles.text_style.clone());
+        textarea.set_cursor_line_style(self.config.styles.text_style);
         if let Some(description) = self.shortcut.as_ref().unwrap().description.as_ref() {
             textarea.insert_str(description.as_str());
         }
@@ -65,15 +65,15 @@ impl ModalView<Shortcut> for ShortcutEditor {
                             Some(textarea.lines()[0].as_str())
                         };
                         debug!("Saving description: {:?}", description);
-                        if let Some(shortcut) = self.shortcut.as_ref() {
-                            if let Err(err) = self.store.update_shortcut(
+                        if let Some(shortcut) = self.shortcut.as_ref()
+                            && let Err(err) = self.store.update_shortcut(
                                 shortcut.id,
                                 shortcut.name.as_str(),
                                 shortcut.path.as_str(),
                                 description,
-                            ) {
-                                error!("Error updating shortcut: {}", err);
-                            }
+                            )
+                        {
+                            error!("Error updating shortcut: {}", err);
                         }
                     }
                     self.shortcut = None;
@@ -109,7 +109,7 @@ impl ModalView<Shortcut> for ShortcutEditor {
         frame.render_widget(Clear, chunks[1]);
         // Fill the frame with the background color if defined
         if let Some(bg_color) = &self.config.styles.background_color {
-            let background = Paragraph::new("").style(Style::default().bg(bg_color.clone()));
+            let background = Paragraph::new("").style(Style::default().bg(*bg_color));
             frame.render_widget(background, chunks[1]);
         }
 

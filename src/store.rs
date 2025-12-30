@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection, Result};
+use rusqlite::{Connection, Result, params};
 
 use log::debug;
 use log::{error, info};
@@ -64,13 +64,12 @@ impl Store {
     pub(crate) fn new(dir_path: &std::path::Path) -> Store {
         info!("db file={}", dir_path.display());
 
-        if !dir_path.exists() {
-            if let Some(parent) = dir_path.parent() {
-                if let Err(e) = fs::create_dir_all(parent) {
-                    error!("Failed to create directory '{}': {}", parent.display(), e);
-                    panic!("Directory creation failed");
-                }
-            }
+        if !dir_path.exists()
+            && let Some(parent) = dir_path.parent()
+            && let Err(e) = fs::create_dir_all(parent)
+        {
+            error!("Failed to create directory '{}': {}", parent.display(), e);
+            panic!("Directory creation failed");
         }
         let db_exists = dir_path.exists();
 
