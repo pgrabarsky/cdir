@@ -158,7 +158,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             load_shortcuts_from_yaml(store, PathBuf::from(filename));
         }
         Some(Commands::Lasts) => {
-            let list = store.list_paths(0, 10, "").unwrap();
+            let list = store.list_paths(0, 10, "", false).unwrap();
             list.iter()
                 .for_each(|s| println!("{} {}", (config.date_formater)(s.date), s.path));
         }

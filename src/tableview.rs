@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::confirmation::Confirmation;
 use crate::model::{DataViewModel, ListFunction};
 use crate::theme::ThemeStyles;
-use crossterm::event;
+use crossterm::event::{self};
 use crossterm::event::{Event, KeyCode, KeyModifiers};
 use log::{debug, trace, warn};
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
@@ -59,6 +59,8 @@ pub struct TableView<'store, T: Clone, S> {
     confirmation_view: Option<Box<Confirmation>>,
     confirmation_callback: Option<Box<dyn FnMut(&mut Self)>>,
     confirmation_active: bool,
+    match_area: Rect,
+    fuzzy_match: bool,
 }
 
 impl<'store, T: Clone> TableView<'store, T, bool> {
@@ -87,8 +89,9 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
         search_string: Arc<Mutex<String>>,
         modal_view: Option<Box<dyn ModalView<T>>>,
     ) -> Self {
+        let fuzzy_match = false;
         TableView {
-            data_model: DataViewModel::new(list_fn),
+            data_model: DataViewModel::new(list_fn, fuzzy_match),
             column_names,
             column_constraints,
             table_state: TableState::default(),
@@ -104,6 +107,8 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             confirmation_view: None,
             confirmation_callback: None,
             confirmation_active: false,
+            match_area: Rect::new(0, 0, 0, 0),
+            fuzzy_match,
         }
     }
 
@@ -122,7 +127,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
 
         loop {
             let event = event::read().unwrap();
-            debug!("Main loop event: {:?}", event);
+            trace!("Main loop event: {:?}", event);
 
             if self.confirmation_active {
                 if !self.confirmation_view.as_mut().unwrap().handle_event(event) {
@@ -180,8 +185,12 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
                         KeyCode::PageUp => {
                             self.handle_up(key.modifiers.contains(KeyModifiers::SHIFT), true);
                         }
-                        KeyCode::Tab => break GuiResult::Next,
-                        KeyCode::Esc => break GuiResult::Quit,
+                        KeyCode::Tab => {
+                            break GuiResult::Next;
+                        }
+                        KeyCode::Esc => {
+                            break GuiResult::Quit;
+                        }
                         KeyCode::Backspace => {
                             let mut search_string = self.search_string.lock().unwrap();
                             search_string.pop();
@@ -209,6 +218,10 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
                                         debug!("Help");
                                         break GuiResult::Help;
                                     }
+                                    'f' => {
+                                        self.fuzzy_match = !self.fuzzy_match;
+                                        self.data_model.set_fuzzy_match(self.fuzzy_match);
+                                    }
                                     'a' => {
                                         let s = *self.view_state.borrow();
                                         *self.view_state.borrow_mut() = !s
@@ -225,8 +238,8 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
                     }
                     let _ = terminal.draw(|frame| self.draw(frame));
                 }
-                Event::Mouse(mouse_event) => {
-                    debug!("Mouse event: {:?}", mouse_event);
+                Event::Mouse(_) => {
+                    // NOP
                 }
                 Event::Resize(width, height) => {
                     debug!("Resize event: width={}, height={}", width, height);
@@ -408,45 +421,65 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
 
         self.render_table(frame, main);
 
-        let horizontal =
-            Layout::horizontal([Constraint::Percentage(90), Constraint::Percentage(10)]).spacing(0);
-        let [left, right] = horizontal.areas(input);
+        {
+            // bottom line
+            let horizontal = Layout::horizontal([
+                Constraint::Length(4),
+                Constraint::Percentage(90),
+                Constraint::Percentage(10),
+            ])
+            .spacing(0);
+            let [left, center, right] = horizontal.areas(input);
 
-        // Draw the free text area
-        let pa = Paragraph::new(format!("> {}_", search_string.as_str())).style(
-            self.styles
-                .path_style
-                .bg(self.styles.free_text_area_bg_color.unwrap()),
-        );
-        frame.render_widget(pa, left);
+            // The left exact/fuzzy indicator
+            self.match_area = left;
+            let mut pa = if self.fuzzy_match {
+                Paragraph::new("[f]")
+            } else {
+                Paragraph::new("[e]")
+            };
+            pa = pa.style(
+                self.styles
+                    .date_style
+                    .bg(self.styles.free_text_area_bg_color.unwrap()),
+            );
+            frame.render_widget(pa, left);
 
-        let pb = if self.data_model.length > 0 {
-            Paragraph::new("")
-                .style(
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(self.styles.free_text_area_bg_color.unwrap()),
-                )
-                .alignment(Alignment::Center)
-        } else {
-            Paragraph::new("no entry")
-                .style(
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(self.styles.free_text_area_bg_color.unwrap()),
-                )
-                .bg(Color::Red)
-                .alignment(Alignment::Center)
-        };
+            // Draw the free text area
+            let pa = Paragraph::new(format!("> {}_", search_string.as_str())).style(
+                self.styles
+                    .path_style
+                    .bg(self.styles.free_text_area_bg_color.unwrap()),
+            );
+            frame.render_widget(pa, center);
 
-        frame.render_widget(pb, right);
+            let pb = if self.data_model.length > 0 {
+                Paragraph::new("")
+                    .style(
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(self.styles.free_text_area_bg_color.unwrap()),
+                    )
+                    .alignment(Alignment::Center)
+            } else {
+                Paragraph::new("no entry")
+                    .style(
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(self.styles.free_text_area_bg_color.unwrap()),
+                    )
+                    .bg(Color::Red)
+                    .alignment(Alignment::Center)
+            };
+            frame.render_widget(pb, right);
+        }
 
         if self.modal_active
             && let Some(modal) = &mut self.modal_view
         {
             modal.draw(frame);
         }
-        
+
         if self.confirmation_active
             && let Some(confirmation) = &mut self.confirmation_view
         {

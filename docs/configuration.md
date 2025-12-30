@@ -26,31 +26,31 @@ Several themes are provided by default:
 
 * _default_
 
-![default](pictures/default.png )
+![default](pictures/default.png)
 
 * _dark-blue_
 
-![default](pictures/dark-blue.png )
+![dark-blue](pictures/dark-blue.png)
 
 * _dark_
 
-![default](pictures/dark.png )
+![dark](pictures/dark.png)
 
 * _winter_
 
-![default](pictures/winter.png )
+![winter](pictures/winter.png)
 
 * _light-autumn_
 
-![default](pictures/light-autumn.png )
+![light-autumn](pictures/light-autumn.png)
 
 * _light-joy_
 
-![default](pictures/light-joy.png )
+![light-joy](pictures/light-joy.png)
 
 * _pure_
 
-![default](pictures/pure.png )
+![pure](pictures/pure.png)
 
 
 When no theme is explicitly set, the _default_ theme is implicitly selected.

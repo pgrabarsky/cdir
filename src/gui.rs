@@ -197,11 +197,7 @@ impl<'a> Gui<'a> {
                     };
                     let path = shortened_line
                         .unwrap_or_else(|| {
-                            Self::reduce_path(
-                                &path.path,
-                                size[1],
-                                config.styles.home_tilde_style,
-                            )
+                            Self::reduce_path(&path.path, size[1], config.styles.home_tilde_style)
                         })
                         .style(config.styles.path_style);
 
@@ -222,7 +218,7 @@ impl<'a> Gui<'a> {
         TableView::new(
             vec!["date".to_string(), "path".to_string()],
             vec![Constraint::Length(20), Constraint::Fill(1)],
-            Box::new(|pos, len, text| store.list_paths(pos, len, text)),
+            Box::new(|pos, len, text, fuzzy| store.list_paths(pos, len, text, fuzzy)),
             Box::new(Gui::build_format_history_row_builder(
                 store,
                 config,
@@ -307,7 +303,9 @@ impl<'a> Gui<'a> {
                 Constraint::Fill(1),
                 Constraint::Fill(1),
             ],
-            Box::new(|pos: usize, len: usize, text: &str| store.list_shortcuts(pos, len, text)),
+            Box::new(|pos: usize, len: usize, text: &str, fuzzy| {
+                store.list_shortcuts(pos, len, text, fuzzy)
+            }),
             Box::new(Gui::build_format_shortcut_row_builder(
                 store,
                 config,

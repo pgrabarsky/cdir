@@ -61,7 +61,7 @@ fn help_draw(frame: &mut Frame, config: &Config) {
         Line::from(vec![
             Span::styled("Use ", ts),
             Span::styled("ctrl+a", es),
-            Span::styled(" to see the full directory path with shortcuts.", ts),
+            Span::styled(" to see the full directory path without shortcuts, or switch back to shortcut usage.", ts),
         ]),
         Line::from(vec![
             Span::styled("Use ", ts),
@@ -72,6 +72,11 @@ fn help_draw(frame: &mut Frame, config: &Config) {
             Span::styled("Use ", ts),
             Span::styled("ctrl+e", es),
             Span::styled(" to edit a shortcut description.", ts),
+        ]),
+        Line::from(vec![
+            Span::styled("Use ", ts),
+            Span::styled("ctrl+f", es),
+            Span::styled(" to switch between exact and fuzzy search.", ts),
         ]),
         Line::from(vec![
             Span::styled("Use ", ts),

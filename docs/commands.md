@@ -50,4 +50,8 @@ Options:
   -V, --version                    Print version
 ```
 
-Some of these commands are detailed into other part of this documentation.
+You can report to the following sections of for more details:
+
+* `import-paths` [Importing Shortcuts](importing_shortcuts.md)
+
+* `pretty-print-path` [Shell promp](prompt.md)

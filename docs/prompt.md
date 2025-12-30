@@ -2,6 +2,16 @@
 
 You can benefit from `cdir` shortcuts and pretty printing to use them into your shell prompt.
 
+For instance, let's assume you have defined the following shortcut `fe` associated to `~/microservices-demo/src/frontend`:
+
+![shortcuts](pictures/shortcuts.png)
+
+If your current directory is `~/microservices-demo/src/frontend`, then the path in your prompt will look like `[fe]`:
+
+![prompt](pictures/prompt.png)
+
+This solves in an elegant way the problem of have very long paths displayed into you prompt.
+
 This is based on the `pretty-print-path` command that you can use into the configuration of your prompt manager.
 
 Here is an explanation of this command, and then examples of how to use it into `zsh`, `bash` and [starship.rs](https://starship.rs/).
