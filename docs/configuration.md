@@ -165,6 +165,28 @@ inline_theme:
 
 All the parameters available to define a theme can be overriden.
 
+### Dark/light mode
+
+`cdir` can detect whether the current system (macOS/Linux) theme is dark or light and adjust its current theme accordingly.
+
+In order to use this feature, you must define the `theme_dark` and `theme_light` parameters in you configuration:
+
+* When a system dark theme is detected, `cdir` will select the theme indicated into `theme_dark`;
+
+* When a system light theme is detected, `cdir` will select the theme indicated into `theme_light`;
+
+* If the system theme type cannot be detected, `cdir` will fallback to the theme indicated into `theme`.
+
+Example:
+```yaml
+theme: default
+theme_light: default
+theme_dark: dark-blue
+```
+
+Then, in a similar way, the dark and light theme colors and styles can be specifically overriden using the parameter `inline_theme_dark` and `inline_theme_light`.
+
+
 ## Date format
 
 The date format can be customized using the `date_format` option in the configuration file.

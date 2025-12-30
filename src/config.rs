@@ -2,6 +2,8 @@ use crate::theme::{Theme, ThemeStyles};
 use chrono::{DateTime, Local};
 use log::debug;
 use log::error;
+use log::info;
+use log::trace;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
@@ -42,6 +44,8 @@ const DEFAULT_COLORS: fn() -> Theme = || serde_yaml::from_str("").unwrap();
 const DEFAULT_DATE_FORMATER: fn() -> Box<dyn Fn(i64) -> String> =
     || Box::from(|_| String::from(""));
 
+const DEFAULT_NONE: fn() -> Option<String> = || None;
+
 /// Application configuration structure.
 /// The configuration can be loaded from a YAML file.
 #[derive(Serialize, Deserialize)]
@@ -61,8 +65,20 @@ pub struct Config {
     #[serde(default = "DEFAULT_THEME")]
     pub theme: Option<String>,
 
+    #[serde(default = "DEFAULT_NONE")]
+    pub theme_dark: Option<String>,
+
+    #[serde(default = "DEFAULT_NONE")]
+    pub theme_light: Option<String>,
+
     #[serde(default = "DEFAULT_COLORS")]
     pub inline_theme: Theme,
+
+    #[serde(default = "DEFAULT_COLORS")]
+    pub inline_theme_dark: Theme,
+
+    #[serde(default = "DEFAULT_COLORS")]
+    pub inline_theme_light: Theme,
 
     #[serde(skip_serializing)]
     #[serde(skip_deserializing)]
@@ -100,31 +116,21 @@ impl Config {
         }
 
         let file = std::fs::File::open(path.clone());
-        let mut config: Config;
 
         match serde_yaml::from_reader(file.unwrap()) {
-            Ok(c) => {
-                config = c;
-            }
-            Err(e) => {
-                return Err(format!("Failed to parse config file {:?}: {}", path, e));
-            }
+            Ok(c) => Ok(c),
+            Err(e) => Err(format!("Failed to parse config file {:?}: {}", path, e)),
         }
+    }
 
-        // process themes:
-        let mut external_theme = Theme::default();
-        if let Some(theme) = config.theme.as_ref() {
-            if let Some(theme) = config.load_theme(theme) {
-                external_theme = theme.merge(&external_theme);
-            }
-        }
-        let actual_theme = config.inline_theme.merge(&external_theme);
+    pub fn process(self: &mut Config) -> &Config {
+        let actual_theme = Self::process_themes(self);
 
         // compute the styles fom the current inline_theme
-        config.styles = ThemeStyles::from(&actual_theme);
+        self.styles = ThemeStyles::from(&actual_theme);
 
-        let date_format = config.date_format.clone();
-        config.date_formater = Box::from(move |s: i64| {
+        let date_format = self.date_format.clone();
+        self.date_formater = Box::from(move |s: i64| {
             DateTime::from_timestamp(s, 0)
                 .unwrap()
                 .with_timezone(&Local::now().timezone())
@@ -132,7 +138,57 @@ impl Config {
                 .to_string()
         });
 
-        Ok(config)
+        self
+    }
+
+    fn process_themes(config: &Config) -> Theme {
+        let actual_theme: Theme;
+        let mut external_theme = Theme::default();
+
+        // Process the dark/light config
+        if config.theme_dark.is_some() && config.theme_light.is_some() {
+            let dl = match dark_light::detect() {
+                Ok(dl) => dl,
+                Err(err) => {
+                    error!("failed to detect dark_light mode {}", err);
+                    return Self::build_regular_theme(config);
+                }
+            };
+            match dl {
+                dark_light::Mode::Dark => {
+                    trace!("dark mode detected");
+                    if let Some(theme) = config.load_theme(config.theme_dark.as_ref().unwrap()) {
+                        external_theme = theme.merge(&external_theme);
+                    }
+                    actual_theme = config.inline_theme_dark.merge(&external_theme);
+                }
+                dark_light::Mode::Light => {
+                    trace!("light mode detected");
+                    if let Some(theme) = config.load_theme(config.theme_light.as_ref().unwrap()) {
+                        external_theme = theme.merge(&external_theme);
+                    }
+                    actual_theme = config.inline_theme_light.merge(&external_theme);
+                }
+                dark_light::Mode::Unspecified => {
+                    info!("dark/light mode not detected");
+                    return Self::build_regular_theme(config);
+                }
+            }
+        } else {
+            // process the regular theme setup
+            return Self::build_regular_theme(config);
+        }
+        actual_theme
+    }
+
+    fn build_regular_theme(config: &Config) -> Theme {
+        let mut external_theme = Theme::default();
+        if let Some(theme) = config.theme.as_ref()
+            && let Some(theme) = config.load_theme(theme)
+        {
+            external_theme = theme.merge(&external_theme);
+        }
+        config.inline_theme.merge(&external_theme)
     }
 
     fn initialize(config_file_path: PathBuf) {
@@ -325,8 +381,12 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            inline_theme: Default::default(),
             theme: Default::default(),
+            theme_dark: Default::default(),
+            theme_light: Default::default(),
+            inline_theme: Default::default(),
+            inline_theme_dark: Default::default(),
+            inline_theme_light: Default::default(),
             styles: Default::default(),
             themes_directory_path: Default::default(),
             date_formater: Box::new(|date| date.to_string()),
@@ -342,12 +402,16 @@ impl Clone for Config {
     fn clone(&self) -> Self {
         Config {
             theme: self.theme.clone(),
+            theme_dark: self.theme_dark.clone(),
+            theme_light: self.theme_light.clone(),
+            inline_theme: self.inline_theme.clone(),
+            inline_theme_dark: self.inline_theme_dark.clone(),
+            inline_theme_light: self.inline_theme_light.clone(),
             styles: self.styles.clone(),
             themes_directory_path: self.themes_directory_path.clone(),
             db_path: self.db_path.clone(),
             log_config_path: self.log_config_path.clone(),
             date_format: self.date_format.clone(),
-            inline_theme: self.inline_theme.clone(),
             // Provide a new default closure for date_formater
             date_formater: Box::new(|date| date.to_string()),
         }
