@@ -15,8 +15,8 @@ pub(crate) fn help_run(terminal: &mut DefaultTerminal, config: &Config) {
 }
 
 fn help_draw(frame: &mut Frame, config: &Config) {
-    let ts = config.styles.text_style.clone();
-    let es = config.styles.text_em_style.clone();
+    let ts = config.styles.text_style;
+    let es = config.styles.text_em_style;
 
     let message = Paragraph::new(vec![
         Line::from(vec![
@@ -86,13 +86,13 @@ fn help_draw(frame: &mut Frame, config: &Config) {
             .padding(Padding::new(1, 1, 1, 1))
             .title(Span::styled(
                 " cdir help ",
-                config.styles.title_style.clone(),
+                config.styles.title_style,
             ))
             .borders(Borders::ALL),
     );
     // Fill the frame with the background color if defined
     if let Some(bg_color) = &config.styles.background_color {
-        let background = Paragraph::new("").style(Style::default().bg(bg_color.clone()));
+        let background = Paragraph::new("").style(Style::default().bg(*bg_color));
         frame.render_widget(background, frame.area());
     }
     frame.render_widget(message, frame.area());

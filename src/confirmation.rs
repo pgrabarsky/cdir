@@ -98,16 +98,16 @@ impl ModalView<bool> for Confirmation {
         frame.render_widget(Clear, modal_area);
         // Optional: background color for modal
         if let Some(bg_color) = &self.styles.background_color {
-            let background = Paragraph::new("").style(Style::default().bg(bg_color.clone()));
+            let background = Paragraph::new("").style(Style::default().bg(*bg_color));
             frame.render_widget(background, modal_area);
         }
 
         let block = Block::default()
             .title("Confirmation")
-            .title_style(self.styles.title_style.clone())
+            .title_style(self.styles.title_style)
             .borders(Borders::ALL)
             .border_style(Style::default().fg(self.styles.border_color.unwrap()))
-            .style(self.styles.text_style.clone());
+            .style(self.styles.text_style);
         frame.render_widget(block, modal_area);
 
         // Split modal into title, message, buttons

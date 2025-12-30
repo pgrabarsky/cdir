@@ -72,10 +72,10 @@ enum Commands {
 }
 
 fn initialize_logs(config_path: &Option<PathBuf>) {
-    if let Some(config_path) = config_path.as_ref() {
-        if config_path.exists() {
-            let _ = log4rs::init_file(config_path, Default::default());
-        }
+    if let Some(config_path) = config_path.as_ref()
+        && config_path.exists()
+    {
+        let _ = log4rs::init_file(config_path, Default::default());
     };
 }
 
