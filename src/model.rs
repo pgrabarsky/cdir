@@ -10,12 +10,13 @@ use log::{debug, error, trace};
 /// - `start`: The starting index of the data entries to retrieve.
 /// - `count`: The maximum number of data entries to retrieve.
 /// - `filter`: A string used as a filter or search term for the data entries.
+/// - `fuzzy`: If true, perform a fuzzy search ; else perform an exact search
 ///
 /// # Returns
 /// - `Result<Vec<T>, rusqlite::Error>`: A `Result` containing either a vector of data entries
 ///   (`Vec<T>`) on success or a `rusqlite::Error` on failure.
 pub(crate) type ListFunction<'store, T> =
-    dyn Fn(usize, usize, &str) -> Result<Vec<T>, rusqlite::Error> + 'store;
+    dyn Fn(usize, usize, &str, bool) -> Result<Vec<T>, rusqlite::Error> + 'store;
 
 /// A model representing a view of data, typically used for managing and displaying
 /// a subset of entries with filtering and pagination capabilities.
@@ -36,6 +37,7 @@ pub(crate) struct DataViewModel<'store, T> {
     pub(crate) first: usize,
     pub(crate) length: u16,
     filter: String,
+    fuzzy_match: bool,
 }
 
 impl<'store, T: Clone> DataViewModel<'store, T> {
@@ -47,13 +49,14 @@ impl<'store, T: Clone> DataViewModel<'store, T> {
     ///
     /// ### Returns
     /// A new `DataViewModel` instance.
-    pub(crate) fn new(list_fn: Box<ListFunction<'store, T>>) -> Self {
+    pub(crate) fn new(list_fn: Box<ListFunction<'store, T>>, fuzzy_match: bool) -> Self {
         DataViewModel {
             entries: Option::None,
             list_fn,
             first: 0,
             length: 0,
             filter: String::new(),
+            fuzzy_match,
         }
     }
 
@@ -96,6 +99,15 @@ impl<'store, T: Clone> DataViewModel<'store, T> {
         true
     }
 
+    pub(crate) fn set_fuzzy_match(&mut self, fuzzy_match: bool) {
+        debug!("fuzzy_match={}", fuzzy_match);
+        if self.fuzzy_match == fuzzy_match {
+            return;
+        }
+        self.fuzzy_match = fuzzy_match;
+        self.update(self.first, self.length, &self.filter.clone(), true);
+    }
+
     /// Updates the data view with new entries based on the specified range and filter.
     /// If the requested range is already a subset of the current data, no update occurs.
     ///
@@ -113,21 +125,18 @@ impl<'store, T: Clone> DataViewModel<'store, T> {
     pub(crate) fn update(&mut self, first: usize, length: u16, text: &str, force: bool) -> bool {
         trace!(
             "update first={} length={} text={} force={}",
-            first,
-            length,
-            text,
-            force
+            first, length, text, force
         );
-        if self.update_into_subset(first, length, text) {
+        if !force && !self.fuzzy_match && self.update_into_subset(first, length, text) {
             trace!("subset found");
             return false;
         }
         let new_entries: Result<Vec<T>, rusqlite::Error> =
-            (self.list_fn)(first, length as usize, text);
+            (self.list_fn)(first, length as usize, text, self.fuzzy_match);
         match new_entries {
             Ok(new_entries) => {
                 let new_length = new_entries.len();
-                if new_length != length as usize {
+                if !force && (new_length != length as usize) {
                     // If we have less data than requested and it is a subset, we don't update
                     // This is the case for a scroll out of the data.
                     if self.is_a_subset_of(first, new_length as u16, text) {
@@ -185,7 +194,7 @@ impl<'store, T: Clone> DataViewModel<'store, T> {
     /// starting index, length, and filter.
     pub(crate) fn reload(&mut self) {
         let new_entries: Result<Vec<T>, rusqlite::Error> =
-            (self.list_fn)(self.first, self.length as usize, self.filter.as_str());
+            (self.list_fn)(self.first, self.length as usize, self.filter.as_str(), self.fuzzy_match);
         match new_entries {
             Ok(new_entries) => {
                 let new_length = new_entries.len();
@@ -214,14 +223,14 @@ mod tests {
     #[test]
     fn test_scroll() {
         let store = Store::setup_test_store();
-        store.add_path(&"/5".to_string()).unwrap();
-        store.add_path(&"/4".to_string()).unwrap();
-        store.add_path(&"/3".to_string()).unwrap();
-        store.add_path(&"/2".to_string()).unwrap();
-        store.add_path(&"/1".to_string()).unwrap();
+        store.add_path("/5").unwrap();
+        store.add_path("/4").unwrap();
+        store.add_path("/3").unwrap();
+        store.add_path("/2").unwrap();
+        store.add_path("/1").unwrap();
 
         let mut model =
-            DataViewModel::new(Box::new(|pos, len, text| store.list_paths(pos, len, text)));
+            DataViewModel::new(Box::new(|pos, len, text, fuzzy| store.list_paths(pos, len, text, fuzzy)) ,false);
         assert!(model.entries.is_none());
 
         model.update(0, 2, "", false);

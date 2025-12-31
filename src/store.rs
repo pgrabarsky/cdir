@@ -1,6 +1,10 @@
+use nucleo_matcher::{
+    Config, Matcher, Utf32Str,
+    pattern::{CaseMatching, Normalization, Pattern},
+};
 use rusqlite::{Connection, Result, params};
 
-use log::debug;
+use log::{debug, trace};
 use log::{error, info};
 
 use std::fs;
@@ -286,8 +290,86 @@ impl Store {
         pos: usize,
         len: usize,
         like_text: &str,
+        fuzzy: bool,
     ) -> Result<Vec<Path>, rusqlite::Error> {
-        debug!("list_paths pos={} len={} like_text={}", pos, len, like_text);
+        debug!(
+            "list_paths pos={} len={} like_text={} fuzzy={}",
+            pos, len, like_text, fuzzy
+        );
+        if like_text.is_empty() || !fuzzy {
+            self.list_path_exact(pos, len, like_text)
+        } else {
+            self.list_path_fuzzy(pos, len, like_text)
+        }
+    }
+
+    fn list_path_fuzzy(
+        &self,
+        pos: usize,
+        len: usize,
+        like_text: &str,
+    ) -> Result<Vec<Path>, rusqlite::Error> {
+        debug!(
+            "list_path_fuzzy pos={} len={} like_text={}",
+            pos, len, like_text
+        );
+
+        let sql = String::from("SELECT id, path, date FROM paths ORDER BY date desc, id desc");
+        let mut stmt = match self.db_conn.prepare(sql.as_str()) {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                error!("list_paths failed in prepare {}: {}", sql, e);
+                return Err(e);
+            }
+        };
+        let params: Vec<String> = vec![];
+        let mut matcher = Matcher::new(Config::DEFAULT.match_paths());
+        let matches = Pattern::parse(like_text, CaseMatching::Ignore, Normalization::Smart);
+        let mut buf = Vec::new();
+        let rows = match stmt.query_map(rusqlite::params_from_iter(params), |row| {
+            Ok(Path {
+                id: row.get(0)?,
+                path: row.get(1)?,
+                date: row.get(2)?,
+            })
+        }) {
+            Ok(rows) => rows.filter_map(|row| {
+                if let Ok(path) = row {
+                    let s = Utf32Str::new(path.path.as_str(), &mut buf);
+                    matches.score(s, &mut matcher).map(|score| (path, score))
+                } else {
+                    None
+                }
+            }),
+            Err(e) => {
+                error!("list_paths failed in query_map: {}", e);
+                return Err(e);
+            }
+        };
+
+        // Collect all (Path, score) pairs and sort by descending score
+        let mut scored_paths: Vec<(Path, u32)> = rows.collect();
+        scored_paths.sort_by(|a, b| b.1.cmp(&a.1));
+        // Paginate: skip `pos`, take `len`
+        let paginated = scored_paths
+            .into_iter()
+            .skip(pos)
+            .take(len)
+            .map(|(path, _)| path)
+            .collect();
+        Ok(paginated)
+    }
+
+    fn list_path_exact(
+        &self,
+        pos: usize,
+        len: usize,
+        like_text: &str,
+    ) -> Result<Vec<Path>, rusqlite::Error> {
+        debug!(
+            "list_path_exact pos={} len={} like_text={}",
+            pos, len, like_text
+        );
 
         let mut params: Vec<String> = vec![];
         let mut sql = String::from("SELECT id, path, date FROM paths");
@@ -488,6 +570,91 @@ impl Store {
         pos: usize,
         len: usize,
         like_text: &str,
+        fuzzy: bool,
+    ) -> Result<Vec<Shortcut>, rusqlite::Error> {
+        debug!(
+            "list_shortcuts pos={} len={} text={} fuzzy={}",
+            pos, len, like_text, fuzzy
+        );
+
+        if like_text.is_empty() || !fuzzy {
+            self.list_shortcuts_exact(pos, len, like_text)
+        } else {
+            self.list_shortcuts_fuzzy(pos, len, like_text)
+        }
+    }
+
+    fn list_shortcuts_fuzzy(
+        &self,
+        pos: usize,
+        len: usize,
+        like_text: &str,
+    ) -> Result<Vec<Shortcut>, rusqlite::Error> {
+        debug!(
+            "list_shortcuts_fuzzy pos={} len={} like_text={}",
+            pos, len, like_text
+        );
+
+        let sql = String::from("SELECT id, name, path, description FROM shortcuts ORDER BY name asc, id desc");
+        let mut stmt = match self.db_conn.prepare(sql.as_str()) {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                error!("list_shortcuts failed in prepare {}: {}", sql, e);
+                return Err(e);
+            }
+        };
+        let params: Vec<String> = vec![];
+        let mut matcher = Matcher::new(Config::DEFAULT.match_paths());
+        let matches = Pattern::parse(like_text, CaseMatching::Ignore, Normalization::Smart);
+        let mut buf = Vec::new();
+        let rows = match stmt.query_map(rusqlite::params_from_iter(params), |row| {
+            Ok(Shortcut {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                path: row.get(2)?,
+                description: row.get(3)?,
+            })
+        }) {
+            Ok(rows) => rows.filter_map(|row| {
+                if let Ok(shortcut) = row {
+                    // Combine name, path, and description for better fuzzy matching
+                    let mut s = shortcut.name.clone();
+                    s.push(' ');
+                    s.push_str(&shortcut.path);
+                    if let Some(desc) = &shortcut.description {
+                        s.push(' ');
+                        s.push_str(desc);
+                    }
+                    let s = Utf32Str::new(&s, &mut buf);
+                    matches.score(s, &mut matcher).map(|score| (shortcut, score))
+                } else {
+                    None
+                }
+            }),
+            Err(e) => {
+                error!("list_shortcuts failed in query_map: {}", e);
+                return Err(e);
+            }
+        };
+
+        // Collect all (Path, score) pairs and sort by descending score
+        let mut scored_shortcuts: Vec<(Shortcut, u32)> = rows.collect();
+        scored_shortcuts.sort_by(|a, b| b.1.cmp(&a.1));
+        // Paginate: skip `pos`, take `len`
+        let paginated = scored_shortcuts
+            .into_iter()
+            .skip(pos)
+            .take(len)
+            .map(|(shortcut, _)| shortcut)
+            .collect();
+        Ok(paginated)
+    }
+
+    fn list_shortcuts_exact(
+        &self,
+        pos: usize,
+        len: usize,
+        like_text: &str,
     ) -> Result<Vec<Shortcut>, rusqlite::Error> {
         debug!("list_shortcuts pos={} len={} text={}", pos, len, like_text);
 
@@ -533,7 +700,6 @@ impl Store {
         }
         Ok(shortcuts)
     }
-
     /// Lists all shortcuts from the database.
     /// The results are ordered by name (ascending) and ID (descending).
     ///
@@ -554,7 +720,7 @@ impl Store {
         };
 
         let rows = match stmt.query_map([], |row| {
-            debug!("list_shortcuts row={:?}", row);
+            trace!("list_shortcuts row={:?}", row);
             Ok(Shortcut {
                 id: row.get(0)?,
                 name: row.get(1)?,
@@ -603,18 +769,18 @@ mod tests {
     fn test_path() {
         let store = Store::setup_test_store();
 
-        let paths = store.list_paths(0, 10, "").unwrap();
+        let paths = store.list_paths(0, 10, "", false).unwrap();
         assert_eq!(paths.len(), 0);
 
         // A single entry
         store.add_path("test_path1").unwrap();
-        let paths = store.list_paths(0, 10, "").unwrap();
+        let paths = store.list_paths(0, 10, "", false).unwrap();
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0].path, "test_path1");
 
         // Two entries
         store.add_path("test_path2").unwrap();
-        let paths = store.list_paths(0, 10, "").unwrap();
+        let paths = store.list_paths(0, 10, "", false).unwrap();
         assert_eq!(paths.len(), 2);
         assert_eq!(paths[0].path, "test_path2");
         assert_eq!(paths[1].path, "test_path1");
@@ -625,7 +791,7 @@ mod tests {
             .unwrap()
             .as_secs();
         store.add_path_with_time("test_path3", now + 7).unwrap();
-        let paths = store.list_paths(0, 10, "").unwrap();
+        let paths = store.list_paths(0, 10, "", false).unwrap();
         assert_eq!(paths.len(), 3);
         assert_eq!(paths[0].path, "test_path3");
         assert_eq!(paths[0].date, now as i64 + 7);
@@ -634,13 +800,13 @@ mod tests {
 
         // Delete the one in the middle
         store.delete_path_by_id(paths[1].id).unwrap();
-        let paths = store.list_paths(0, 10, "").unwrap();
+        let paths = store.list_paths(0, 10, "", false).unwrap();
         assert_eq!(paths.len(), 2);
         assert_eq!(paths[0].path, "test_path3");
         assert_eq!(paths[1].path, "test_path1");
 
         // Perform a search
-        let paths = store.list_paths(0, 10, "3").unwrap();
+        let paths = store.list_paths(0, 10, "3", false).unwrap();
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0].path, "test_path3");
     }
@@ -649,14 +815,14 @@ mod tests {
     fn test_shortcut() {
         let store = Store::setup_test_store();
 
-        let paths = store.list_shortcuts(0, 10, "").unwrap();
+        let paths = store.list_shortcuts(0, 10, "", false).unwrap();
         assert_eq!(paths.len(), 0);
 
         // A single entry
         store
             .add_shortcut("shortcut_1", "/1", Some("desc1"))
             .unwrap();
-        let shortcuts = store.list_shortcuts(0, 10, "").unwrap();
+        let shortcuts = store.list_shortcuts(0, 10, "", false).unwrap();
         assert_eq!(shortcuts.len(), 1);
         assert_eq!(shortcuts[0].name, "shortcut_1");
         assert_eq!(shortcuts[0].path, "/1");
@@ -666,7 +832,7 @@ mod tests {
         store
             .add_shortcut("shortcut_2", "/2", Some("desc2"))
             .unwrap();
-        let shortcuts = store.list_shortcuts(0, 10, "").unwrap();
+        let shortcuts = store.list_shortcuts(0, 10, "", false).unwrap();
         assert_eq!(shortcuts.len(), 2);
         assert_eq!(shortcuts[0].name, "shortcut_1");
         assert_eq!(shortcuts[0].path, "/1");
@@ -676,22 +842,22 @@ mod tests {
         assert_eq!(shortcuts[1].description, Some("desc2".to_string()));
 
         // Perform a search
-        let shortcuts = store.list_shortcuts(0, 10, "2").unwrap();
+        let shortcuts = store.list_shortcuts(0, 10, "2", false).unwrap();
         assert_eq!(shortcuts.len(), 1);
         assert_eq!(shortcuts[0].name, "shortcut_2");
         assert_eq!(shortcuts[0].path, "/2");
         assert_eq!(shortcuts[0].description, Some("desc2".to_string()));
 
         // Delete the one
-        let shortcuts = store.list_shortcuts(0, 10, "").unwrap();
+        let shortcuts = store.list_shortcuts(0, 10, "", false).unwrap();
         store.delete_shortcut_by_id(shortcuts[1].id).unwrap();
-        let shortcuts = store.list_shortcuts(0, 10, "").unwrap();
+        let shortcuts = store.list_shortcuts(0, 10, "", false).unwrap();
         assert_eq!(shortcuts.len(), 1);
         assert_eq!(shortcuts[0].name, "shortcut_1");
 
         // Test empty description
         store.add_shortcut("shortcut_nodesc", "/1", None).unwrap();
-        let shortcuts = store.list_shortcuts(0, 10, "").unwrap();
+        let shortcuts = store.list_shortcuts(0, 10, "", false).unwrap();
         assert_eq!(shortcuts.len(), 2);
         assert_eq!(shortcuts[0].name, "shortcut_1");
         assert_eq!(shortcuts[1].name, "shortcut_nodesc");
