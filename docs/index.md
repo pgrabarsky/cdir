@@ -3,7 +3,7 @@
 `cdir` allows you to quickly navigate to a directory recorded into your history.
 It runs inside a terminal.
 
-You can see a presentation here below:
+You can see a 3 minutes presentation here below:
 
 <div id="demo" style="max-width: 60em"></div>
 
