@@ -3,20 +3,17 @@ document$.subscribe(function() {
 
   createPlayer('merged.cast', 'demo', {  loop: true,
                     poster: 'npt:0:1',
-                    cols: 100,
-                    rows:32,
+                    cols: 80,
+                    rows: 24,
                     mkap_theme: "none",
                     markers: [
-                        [3.0, "Introduction"],
-                        [42.0, "Launching the GUI"],
-                        [46.0, "Demo: Launching the GUI"],
-                        [56.0, "Regular cd"],
-                        [65.0, "Demo: Regular cd"],
-                        [80.0, "Going back to a recorded directory"],
-                        [92.0, "Demo: Going back to a recorded directory"],
-                        [106, "Filtering"],
-                        [120, "Demo: Filtering"],
-                        [140, "Conclusion"]
+                        [2.0, "Introduction"],
+                        [28.0, "Launching the GUI"],
+                        [44.0, "Regular cd"],
+                        [65.0, "Going back to a recorded directory"],
+                        [88, "Filtering"],
+                        [113, "Shortcuts"],
+                        [175, "Conclusion"]
                     ]
                 });
 
