@@ -5,7 +5,7 @@ use crate::theme::ThemeStyles;
 use crossterm::event::{self};
 use crossterm::event::{Event, KeyCode, KeyModifiers};
 use log::{debug, trace, warn};
-use ratatui::layout::{Alignment, Constraint, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Layout, Position, Rect};
 use ratatui::prelude::{Color, Style};
 use ratatui::style::Stylize;
 use ratatui::widgets::{Paragraph, Row, Table, TableState};
@@ -19,6 +19,8 @@ const JUMP_OFFSET: usize = 10;
 
 const TABLE_COLUMN_SPACING: u16 = 1;
 const TABLE_HIGHLIGHT_SYMBOL: &str = "> ";
+
+const SEARCH_PROMPT: &str = "> ";
 
 /// Represents the possible results of a GUI action.
 pub enum GuiResult {
@@ -51,6 +53,7 @@ pub struct TableView<'store, T: Clone, S> {
     rowify: RowifyFn<'store, T>,
     stringify: fn(&T) -> String,
     search_string: Arc<Mutex<String>>,
+    search_string_cursor_index: usize,
     styles: ThemeStyles,
     view_state: Rc<RefCell<S>>,
     delete_fn: DeleteFn<'store, T>,
@@ -99,6 +102,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             rowify,
             stringify,
             search_string,
+            search_string_cursor_index: 0,
             styles: config.styles.clone(),
             view_state,
             delete_fn,
@@ -192,19 +196,47 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
                             break GuiResult::Quit;
                         }
                         KeyCode::Backspace => {
+                            if self.search_string_cursor_index != 0 {
+                                let mut search_string = self.search_string.lock().unwrap();
+                                search_string.remove(self.search_string_cursor_index - 1);
+                                self.search_string_cursor_index -= 1;
+                                self.data_model.update(
+                                    0,
+                                    self.table_rows_count,
+                                    search_string.as_str(),
+                                    true,
+                                );
+                            }
+                        }
+                        KeyCode::Delete => {
                             let mut search_string = self.search_string.lock().unwrap();
-                            search_string.pop();
-                            self.data_model.update(
-                                0,
-                                self.table_rows_count,
-                                search_string.as_str(),
-                                true,
-                            );
+                            if self.search_string_cursor_index < search_string.len() {
+                                search_string.remove(self.search_string_cursor_index);
+                                self.data_model.update(
+                                    0,
+                                    self.table_rows_count,
+                                    search_string.as_str(),
+                                    true,
+                                );
+                            }
+                        }
+                        KeyCode::Left => {
+                            if self.search_string_cursor_index != 0 {
+                                self.search_string_cursor_index -= 1;
+                            }
+                        }
+                        KeyCode::Right => {
+                            if self.search_string_cursor_index
+                                < self.search_string.lock().unwrap().len()
+                            {
+                                self.search_string_cursor_index += 1;
+                            }
                         }
                         KeyCode::Char(c) => {
                             if key.modifiers != KeyModifiers::CONTROL {
                                 let mut search_string = self.search_string.lock().unwrap();
-                                search_string.push(c);
+                                search_string.insert(self.search_string_cursor_index, c);
+                                self.search_string_cursor_index += 1;
                                 self.data_model.update(
                                     0,
                                     self.table_rows_count,
@@ -421,6 +453,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
 
         self.render_table(frame, main);
 
+        let search_text_area: Rect;
         {
             // bottom line
             let horizontal = Layout::horizontal([
@@ -429,7 +462,9 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
                 Constraint::Percentage(10),
             ])
             .spacing(0);
-            let [left, center, right] = horizontal.areas(input);
+            let left: Rect;
+            let right: Rect;
+            [left, search_text_area, right] = horizontal.areas(input);
 
             // The left exact/fuzzy indicator
             self.match_area = left;
@@ -446,12 +481,13 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             frame.render_widget(pa, left);
 
             // Draw the free text area
-            let pa = Paragraph::new(format!("> {}_", search_string.as_str())).style(
+
+            let pa = Paragraph::new(format!("{}{}", SEARCH_PROMPT, search_string.as_str())).style(
                 self.styles
                     .path_style
                     .bg(self.styles.free_text_area_bg_color.unwrap()),
             );
-            frame.render_widget(pa, center);
+            frame.render_widget(pa, search_text_area);
 
             let pb = if self.data_model.length > 0 {
                 Paragraph::new("")
@@ -478,12 +514,17 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             && let Some(modal) = &mut self.modal_view
         {
             modal.draw(frame);
-        }
-
-        if self.confirmation_active
+        } else if self.confirmation_active
             && let Some(confirmation) = &mut self.confirmation_view
         {
             confirmation.draw(frame);
+        } else {
+            frame.set_cursor_position(Position::new(
+                search_text_area.x
+                    + self.search_string_cursor_index as u16
+                    + SEARCH_PROMPT.len() as u16,
+                search_text_area.y,
+            ));
         }
     }
 
