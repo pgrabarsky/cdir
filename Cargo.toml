@@ -18,7 +18,7 @@ log4rs = "1.3.0"
 serde = "1.0.216"
 serde_yaml = "0.9.34"
 tui-textarea = "0.7.0"
-dark-light = "2.0.0"
+dark-light = { git = "https://github.com/rust-dark-light/dark-light.git", rev = "0f18d2fbcaa5d1c175db8aae7d53428988d7e961" }
 nucleo-matcher = "0.3.1"
 
 # The profile that 'dist' will build with
