@@ -30,9 +30,9 @@ This is the recommanded way to install `cdir` on macOS as it is more automated a
     ```
     $ cdir
     → Initializing the configuration...
-    → Creating the default configuration file "/Users/&lt;user&gt;/.config/cdir/config.yaml"
-    → Creating data directory "/Users/&lt;user&gt;/Library/Application Support/cdir"
-    → Creating the cdir shell file "/Users/&lt;user&gt;/.cdirsh"
+    → Creating the default configuration file "/Users/<user>/.config/cdir/config.yaml"
+    → Creating data directory "/Users/<user>/Library/Application Support/cdir"
+    → Creating the cdir shell file "/Users/<user>/.cdirsh"
     → Adding source line to "~/.zshrc"
     ✓ Configuration is ready. Please restart your shell or run 'source ~/.cdirsh' to apply the changes.
     Use the 'c' shell alias to launch the GUI.
