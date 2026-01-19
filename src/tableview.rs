@@ -1,18 +1,29 @@
-use crate::config::Config;
-use crate::confirmation::Confirmation;
-use crate::model::{DataViewModel, ListFunction};
-use crate::theme::ThemeStyles;
-use crossterm::event::{self};
-use crossterm::event::{Event, KeyCode, KeyModifiers};
-use log::{debug, trace, warn};
-use ratatui::layout::{Alignment, Constraint, Layout, Position, Rect};
-use ratatui::prelude::{Color, Style};
-use ratatui::style::Stylize;
-use ratatui::widgets::{Paragraph, Row, Table, TableState};
-use ratatui::{DefaultTerminal, Frame};
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::{
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
+
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use log::{debug, info, trace, warn};
+use ratatui::{
+    Frame,
+    layout::{Alignment, Constraint, Layout, Position, Rect},
+    prelude::{Color, Style},
+    style::Stylize,
+    widgets::{Paragraph, Row, Table, TableState},
+};
+use tokio::sync::broadcast;
+
+use crate::{
+    config::Config,
+    confirmation::Confirmation,
+    model::{DataViewModel, ListFunction},
+    theme::ThemeStyles,
+    tui::{
+        EventCaptured, GenericEvent, ManagerAction, View, ViewBuilder, ViewManager,
+        event::ViewManagerEvent,
+    },
+};
 
 const TABLE_HEADER_LENGTH: usize = 1;
 const JUMP_OFFSET: usize = 10;
@@ -22,404 +33,63 @@ const TABLE_HIGHLIGHT_SYMBOL: &str = "> ";
 
 const SEARCH_PROMPT: &str = "> ";
 
-/// Represents the possible results of a GUI action.
-pub enum GuiResult {
-    Quit,
-    Print(String),
-    Next,
-    Help,
-}
-
 /// A function type that converts a vector of items of type T into a vector of table rows.
-pub type RowifyFn<'store, T> = Box<dyn for<'a> Fn(&'a [T], &[u16]) -> Vec<Row<'a>> + 'store>;
+pub type RowifyFn<T> = Box<dyn Fn(&[T], &[u16]) -> Vec<Row<'static>>>;
 
 /// A function type that deletes an item of type T into the store
-pub type DeleteFn<'store, T> = Box<dyn Fn(&T) + 'store>;
+pub type DeleteFn<T> = Box<dyn Fn(&T)>;
 
-// A trait for handling modal views
-pub trait ModalView<T: Clone> {
-    fn initialize(&mut self, item: &T);
-    fn handle_event(&mut self, event: Event) -> bool;
-    fn draw(&mut self, frame: &mut Frame);
+pub type EditorViewBuilder<T> = Box<dyn Fn(T) -> Box<ViewBuilder>>;
+
+pub struct TableViewState {
+    pub display_with_shortcuts: bool,
+    search_string: String,
+    search_string_cursor_index: usize,
+    fuzzy_match: bool,
+}
+
+impl TableViewState {
+    pub fn new() -> Self {
+        TableViewState {
+            display_with_shortcuts: true,
+            search_string: String::new(),
+            search_string_cursor_index: 0,
+            fuzzy_match: false,
+        }
+    }
 }
 
 /// A generic table view for displaying data in a tabular format within the GUI.
-pub struct TableView<'store, T: Clone, S> {
-    data_model: DataViewModel<'store, T>,
+pub struct TableView<T: Clone> {
+    vm: Rc<ViewManager>,
+    tx: broadcast::Sender<GenericEvent>,
+    data_model: DataViewModel<T>,
     column_names: Vec<String>,
     column_constraints: Vec<Constraint>,
     table_state: TableState,
     table_rows_count: u16, // Number of lines in the table, excluding header & footer
-    rowify: RowifyFn<'store, T>,
+    rowify: RowifyFn<T>,
     stringify: fn(&T) -> String,
-    search_string: Arc<Mutex<String>>,
-    search_string_cursor_index: usize,
     styles: ThemeStyles,
-    view_state: Rc<RefCell<S>>,
-    delete_fn: DeleteFn<'store, T>,
-    modal_view: Option<Box<dyn ModalView<T>>>,
-    modal_active: bool,
-    confirmation_view: Option<Box<Confirmation>>,
-    confirmation_callback: Option<Box<dyn FnMut(&mut Self)>>,
-    confirmation_active: bool,
+    view_state: Arc<Mutex<TableViewState>>,
+    delete_fn: DeleteFn<T>,
+    editor_modal_view_builder: Option<EditorViewBuilder<T>>,
     match_area: Rect,
-    fuzzy_match: bool,
 }
 
-impl<'store, T: Clone> TableView<'store, T, bool> {
-    /// Create a new TableView instance.
-    ///
-    /// ### Parameters
-    /// - `column_names`: A vector of strings representing the names of the table columns.
-    /// - `list_fn`: A boxed function that lists items of type T from the store
-    /// - `rowify`: A boxed function that converts a vector of items of type T into a vector of table rows.
-    /// - `stringify`: A function that converts an item of type T into a string
-    /// - `config`: A reference to the configuration object containing color settings.
-    /// - `view_state`: A reference-counted, mutable boolean indicating the current view state.
-    /// - `delete_fn`: A boxed function that deletes an item of type T from the store
-    ///
-    /// ### Returns
-    /// A new instance of `TableView`.
-    pub(crate) fn new(
-        column_names: Vec<String>,
-        column_constraints: Vec<Constraint>,
-        list_fn: Box<ListFunction<'store, T>>,
-        rowify: RowifyFn<'store, T>,
-        stringify: fn(&T) -> String,
-        config: &Config,
-        view_state: Rc<RefCell<bool>>,
-        delete_fn: DeleteFn<'store, T>,
-        search_string: Arc<Mutex<String>>,
-        modal_view: Option<Box<dyn ModalView<T>>>,
-    ) -> Self {
-        let fuzzy_match = false;
-        TableView {
-            data_model: DataViewModel::new(list_fn, fuzzy_match),
-            column_names,
-            column_constraints,
-            table_state: TableState::default(),
-            table_rows_count: 0,
-            rowify,
-            stringify,
-            search_string,
-            search_string_cursor_index: 0,
-            styles: config.styles.clone(),
-            view_state,
-            delete_fn,
-            modal_view,
-            modal_active: false,
-            confirmation_view: None,
-            confirmation_callback: None,
-            confirmation_active: false,
-            match_area: Rect::new(0, 0, 0, 0),
-            fuzzy_match,
-        }
-    }
+impl<T: Clone + 'static> View for TableView<T> {
+    fn init(&mut self) { self.table_state.select_cell(Some((0, 0))); }
 
-    /// Get the index of the currently selected row, if any.
-    fn selected_row(&self) -> Option<usize> {
-        let selected = self.table_state.selected_cell();
-        selected.map(|pos| pos.0)
-    }
-
-    /// Run the GUI.
-    pub(crate) fn run(&mut self, terminal: &mut DefaultTerminal) -> GuiResult {
-        debug!("Select...");
-        self.table_state.select_cell(Some((0, 0)));
-        debug!("Selected");
-        let _ = terminal.draw(|frame| self.draw(frame));
-
-        loop {
-            let event = event::read().unwrap();
-            trace!("Main loop event: {:?}", event);
-
-            if self.confirmation_active {
-                if !self.confirmation_view.as_mut().unwrap().handle_event(event) {
-                    self.confirmation_active = false;
-                    if self.confirmation_view.as_ref().unwrap().result == Some(true) {
-                        debug!("Confirmation given");
-                        if let Some(mut callback) = self.confirmation_callback.take() {
-                            debug!("Executing confirmation callback");
-                            callback(self);
-                        }
-                    } else {
-                        debug!("Confirmation cancelled");
-                    }
-                    self.confirmation_view = None;
-                    self.data_model.reload();
-                }
-                let _ = terminal.draw(|frame| self.draw(frame));
-                continue;
-            }
-            if self.modal_active {
-                if !self.modal_view.as_mut().unwrap().handle_event(event) {
-                    self.modal_active = false;
-                    self.data_model.reload();
-                }
-                let _ = terminal.draw(|frame| self.draw(frame));
-                continue;
-            }
-
-            match event {
-                Event::Key(key) => {
-                    match key.code {
-                        KeyCode::Enter => {
-                            break self
-                                .handle_chosen()
-                                .map_or(GuiResult::Quit, GuiResult::Print);
-                        }
-                        KeyCode::Home => {
-                            self.data_model.update(
-                                0,
-                                self.table_rows_count,
-                                self.search_string.lock().unwrap().as_str(),
-                                true,
-                            );
-                            self.table_state.select_cell(Some((0, 0)))
-                        }
-                        KeyCode::Down => {
-                            self.handle_down(key.modifiers.contains(KeyModifiers::SHIFT), false);
-                        }
-                        KeyCode::Up => {
-                            self.handle_up(key.modifiers.contains(KeyModifiers::SHIFT), false);
-                        }
-                        KeyCode::PageDown => {
-                            self.handle_down(key.modifiers.contains(KeyModifiers::SHIFT), true);
-                        }
-                        KeyCode::PageUp => {
-                            self.handle_up(key.modifiers.contains(KeyModifiers::SHIFT), true);
-                        }
-                        KeyCode::Tab => {
-                            break GuiResult::Next;
-                        }
-                        KeyCode::Esc => {
-                            break GuiResult::Quit;
-                        }
-                        KeyCode::Backspace => {
-                            if self.search_string_cursor_index != 0 {
-                                let mut search_string = self.search_string.lock().unwrap();
-                                search_string.remove(self.search_string_cursor_index - 1);
-                                self.search_string_cursor_index -= 1;
-                                self.data_model.update(
-                                    0,
-                                    self.table_rows_count,
-                                    search_string.as_str(),
-                                    true,
-                                );
-                            }
-                        }
-                        KeyCode::Delete => {
-                            let mut search_string = self.search_string.lock().unwrap();
-                            if self.search_string_cursor_index < search_string.len() {
-                                search_string.remove(self.search_string_cursor_index);
-                                self.data_model.update(
-                                    0,
-                                    self.table_rows_count,
-                                    search_string.as_str(),
-                                    true,
-                                );
-                            }
-                        }
-                        KeyCode::Left => {
-                            if self.search_string_cursor_index != 0 {
-                                self.search_string_cursor_index -= 1;
-                            }
-                        }
-                        KeyCode::Right => {
-                            if self.search_string_cursor_index
-                                < self.search_string.lock().unwrap().len()
-                            {
-                                self.search_string_cursor_index += 1;
-                            }
-                        }
-                        KeyCode::Char(c) => {
-                            if key.modifiers != KeyModifiers::CONTROL {
-                                let mut search_string = self.search_string.lock().unwrap();
-                                search_string.insert(self.search_string_cursor_index, c);
-                                self.search_string_cursor_index += 1;
-                                self.data_model.update(
-                                    0,
-                                    self.table_rows_count,
-                                    search_string.as_str(),
-                                    true,
-                                );
-                            } else {
-                                match c {
-                                    'q' => break GuiResult::Quit,
-                                    'h' => {
-                                        debug!("Help");
-                                        break GuiResult::Help;
-                                    }
-                                    'f' => {
-                                        self.fuzzy_match = !self.fuzzy_match;
-                                        self.data_model.set_fuzzy_match(self.fuzzy_match);
-                                    }
-                                    'a' => {
-                                        let s = *self.view_state.borrow();
-                                        *self.view_state.borrow_mut() = !s
-                                    }
-                                    'd' => self.handle_delete(),
-                                    'e' => self.handle_modal_event(),
-                                    _ => {}
-                                }
-                            }
-                        }
-                        _ => {
-                            warn!("Unknown action key={}", key.code);
-                        }
-                    }
-                    let _ = terminal.draw(|frame| self.draw(frame));
-                }
-                Event::Mouse(_) => {
-                    // NOP
-                }
-                Event::Resize(width, height) => {
-                    debug!("Resize event: width={}, height={}", width, height);
-                    let _ = terminal.draw(|frame| self.draw(frame));
-                }
-                _ => {
-                    debug!("Other event: {:?}", event);
-                }
-            }
-        }
-    }
-
-    /// Handle the chosen item and return its string representation.
-    fn handle_chosen(&self) -> Option<String> {
-        debug!("handle_chosen");
-        if let Some(items) = &self.data_model.entries {
-            let current_row = self.selected_row();
-            current_row.map(|row| (self.stringify)(&items[row]))
-        } else {
-            warn!("No data!");
-            None
-        }
-    }
-
-    /// Handle moving the selection down in the table.
-    fn handle_down(&mut self, jump: bool, page: bool) {
-        if self.data_model.entries.is_none() {
-            debug!("No data");
-            return;
-        }
-        let current_row = self.selected_row();
-        if let Some(current_row) = current_row {
-            let mut offset = if jump { JUMP_OFFSET } else { 1 };
-            offset = if page {
-                self.table_rows_count as usize
-            } else {
-                offset
-            };
-            debug!(
-                "current row={} length={}",
-                current_row, self.data_model.length
-            );
-            if (current_row == (self.table_rows_count - 1) as usize) || page {
-                self.data_model.update_to_offset(
-                    offset as i64,
-                    self.table_rows_count,
-                    self.search_string.lock().unwrap().as_str(),
-                );
-            }
-            let mut next = current_row + offset;
-            if next >= self.data_model.length as usize {
-                next = (self.data_model.length - 1) as usize;
-            }
-            self.table_state.select(Some(next));
-        } else {
-            debug!("no current row");
-        }
-    }
-
-    /// Handle moving the selection up in the table.
-    fn handle_up(&mut self, jump: bool, page: bool) {
-        if self.data_model.entries.is_none() {
-            debug!("No data");
-            return;
-        }
-        let current_row = self.selected_row();
-        if let Some(current_row) = current_row {
-            let mut offset = if jump { JUMP_OFFSET } else { 1 };
-            offset = if page {
-                self.table_rows_count as usize
-            } else {
-                offset
-            };
-            debug!(
-                "current row={} length={}",
-                current_row, self.data_model.length
-            );
-            if (current_row == 0) || page {
-                self.data_model.update_to_offset(
-                    -(offset as i64),
-                    self.table_rows_count,
-                    self.search_string.lock().unwrap().as_str(),
-                );
-            }
-            let mut next: i64 = (current_row as i64) - offset as i64;
-            if next < 0 {
-                next = 0;
-            }
-            self.table_state.select(Some(next as usize));
-        } else {
-            debug!("no current row");
-        }
-    }
-
-    /// Handle deleting the currently selected item.
-    fn handle_delete(&mut self) {
-        debug!("handle_delete");
-        if let Some(items) = &self.data_model.entries {
-            let current_row = self.selected_row();
-
-            self.confirmation_view = Some(Box::new(Confirmation::new(
-                String::from("Deletion of?\n")
-                    + (self.stringify)(&items[current_row.unwrap()]).as_str(),
-                self.styles.clone(),
-            )));
-            self.confirmation_active = true;
-
-            self.confirmation_callback = Some(Box::new(|this| {
-                if let Some(items) = &this.data_model.entries {
-                    let current_row = this.selected_row();
-                    (this.delete_fn)(&items[current_row.unwrap()]);
-                    this.data_model.reload();
-                }
-            }));
-        }
-    }
-
-    fn handle_modal_event(&mut self) {
-        debug!("handle_modal_event");
-        let mut current_row: usize = 0;
-        if self.data_model.entries.is_some() {
-            current_row = match self.selected_row() {
-                Some(row) => row,
-                None => {
-                    debug!("No row selected");
-                    return;
-                }
-            };
-        }
-        if let Some(modal) = &mut self.modal_view
-            && let Some(items) = &self.data_model.entries
-        {
-            modal.initialize(&items[current_row]);
-            self.modal_active = true;
-        }
-    }
-
-    /// Draw the table view on the given frame.
-    fn draw(&mut self, frame: &mut Frame) {
+    fn draw(&mut self, frame: &mut ratatui::Frame, area: Rect, active: bool) {
         // Fill the frame with the background color if defined
         if let Some(bg_color) = &self.styles.background_color {
-            let area = frame.area();
+            // let area = frame.area();
             let background = Paragraph::new("").style(Style::default().bg(*bg_color));
             frame.render_widget(background, area);
         }
 
         let vertical = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).spacing(0);
-        let [main, input] = vertical.areas(frame.area());
+        let [main, input] = vertical.areas(area);
         self.table_rows_count = main.height - TABLE_HEADER_LENGTH as u16;
         debug!("self.table_rows_count={}", self.table_rows_count);
 
@@ -431,9 +101,9 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             frame.render_widget(background, left);
         }
 
-        let search_string_lock = self.search_string.lock().unwrap();
-        let search_string = search_string_lock.clone();
-        drop(search_string_lock);
+        let view_state_lock = self.view_state.lock().unwrap();
+        let search_string = view_state_lock.search_string.clone();
+        drop(view_state_lock);
 
         if self.data_model.length != self.table_rows_count {
             self.data_model.update(
@@ -468,7 +138,7 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
 
             // The left exact/fuzzy indicator
             self.match_area = left;
-            let mut pa = if self.fuzzy_match {
+            let mut pa = if self.view_state.lock().unwrap().fuzzy_match {
                 Paragraph::new("[f]")
             } else {
                 Paragraph::new("[e]")
@@ -510,21 +180,317 @@ impl<'store, T: Clone> TableView<'store, T, bool> {
             frame.render_widget(pb, right);
         }
 
-        if self.modal_active
-            && let Some(modal) = &mut self.modal_view
-        {
-            modal.draw(frame);
-        } else if self.confirmation_active
-            && let Some(confirmation) = &mut self.confirmation_view
-        {
-            confirmation.draw(frame);
-        } else {
+        if active {
+            // Don't activate the cursor if not active...
+            let search_string_cursor_index =
+                self.view_state.lock().unwrap().search_string_cursor_index;
             frame.set_cursor_position(Position::new(
-                search_text_area.x
-                    + self.search_string_cursor_index as u16
-                    + SEARCH_PROMPT.len() as u16,
+                search_text_area.x + search_string_cursor_index as u16 + SEARCH_PROMPT.len() as u16,
                 search_text_area.y,
             ));
+        }
+    }
+
+    fn handle_key_event(&mut self, key_event: KeyEvent) -> (EventCaptured, ManagerAction) {
+        match key_event.code {
+            KeyCode::Enter => {
+                debug!("send exit event");
+                let event =
+                    GenericEvent::ViewManagerEvent(ViewManagerEvent::Exit(self.handle_chosen()));
+                let _ = self.tx.send(event);
+            }
+            KeyCode::Home => {
+                let view_state_lock = self.view_state.lock().unwrap();
+                self.data_model.update(
+                    0,
+                    self.table_rows_count,
+                    view_state_lock.search_string.as_str(),
+                    true,
+                );
+                self.table_state.select_cell(Some((0, 0)))
+            }
+            KeyCode::Down => {
+                self.handle_down(key_event.modifiers.contains(KeyModifiers::SHIFT), false);
+            }
+            KeyCode::Up => {
+                self.handle_up(key_event.modifiers.contains(KeyModifiers::SHIFT), false);
+            }
+            KeyCode::PageDown => {
+                self.handle_down(key_event.modifiers.contains(KeyModifiers::SHIFT), true);
+            }
+            KeyCode::PageUp => {
+                self.handle_up(key_event.modifiers.contains(KeyModifiers::SHIFT), true);
+            }
+            KeyCode::Backspace => {
+                let mut view_state_lock = self.view_state.lock().unwrap();
+                if view_state_lock.search_string_cursor_index != 0 {
+                    let search_string_cursor_index = view_state_lock.search_string_cursor_index;
+                    view_state_lock
+                        .search_string
+                        .remove(search_string_cursor_index - 1);
+                    view_state_lock.search_string_cursor_index -= 1;
+                    self.data_model.update(
+                        0,
+                        self.table_rows_count,
+                        view_state_lock.search_string.as_str(),
+                        true,
+                    );
+                }
+            }
+            KeyCode::Delete => {
+                let mut view_state_lock = self.view_state.lock().unwrap();
+                if view_state_lock.search_string_cursor_index < view_state_lock.search_string.len()
+                {
+                    let search_string_cursor_index = view_state_lock.search_string_cursor_index;
+                    view_state_lock
+                        .search_string
+                        .remove(search_string_cursor_index);
+                    self.data_model.update(
+                        0,
+                        self.table_rows_count,
+                        view_state_lock.search_string.as_str(),
+                        true,
+                    );
+                }
+            }
+            KeyCode::Left => {
+                let mut view_state_lock = self.view_state.lock().unwrap();
+                if view_state_lock.search_string_cursor_index != 0 {
+                    view_state_lock.search_string_cursor_index -= 1;
+                }
+            }
+            KeyCode::Right => {
+                let mut view_state_lock = self.view_state.lock().unwrap();
+                if view_state_lock.search_string_cursor_index < view_state_lock.search_string.len()
+                {
+                    view_state_lock.search_string_cursor_index += 1;
+                }
+            }
+            KeyCode::Char(c) => {
+                if key_event.modifiers != KeyModifiers::CONTROL {
+                    let mut view_state_lock = self.view_state.lock().unwrap();
+                    let search_string_cursor_index = view_state_lock.search_string_cursor_index;
+                    view_state_lock
+                        .search_string
+                        .insert(search_string_cursor_index, c);
+                    view_state_lock.search_string_cursor_index += 1;
+                    self.data_model.update(
+                        0,
+                        self.table_rows_count,
+                        view_state_lock.search_string.as_str(),
+                        true,
+                    );
+                } else {
+                    match c {
+                        'f' => {
+                            let mut view_state_lock = self.view_state.lock().unwrap();
+                            view_state_lock.fuzzy_match = !view_state_lock.fuzzy_match;
+                            self.data_model.set_fuzzy_match(view_state_lock.fuzzy_match);
+                        }
+                        'a' => {
+                            let mut view_state_lock = self.view_state.lock().unwrap();
+                            view_state_lock.display_with_shortcuts =
+                                !view_state_lock.display_with_shortcuts;
+                        }
+                        'd' => self.handle_delete(),
+                        'e' => self.handle_modal_event(),
+                        _ => {}
+                    }
+                }
+            }
+            _ => {
+                warn!("Unknown action key={}", key_event.code);
+            }
+        }
+
+        (EventCaptured::Yes, ManagerAction::new(true))
+    }
+}
+
+impl<T: Clone + 'static> TableView<T> {
+    /// Create a new TableView instance.
+    ///
+    /// ### Parameters
+    /// - `column_names`: A vector of strings representing the names of the table columns.
+    /// - `list_fn`: A boxed function that lists items of type T from the store
+    /// - `rowify`: A boxed function that converts a vector of items of type T into a vector of table rows.
+    /// - `stringify`: A function that converts an item of type T into a string
+    /// - `config`: A reference to the configuration object containing color settings.
+    /// - `view_state`: A reference-counted, mutable boolean indicating the current view state.
+    /// - `delete_fn`: A boxed function that deletes an item of type T from the store
+    ///
+    /// ### Returns
+    /// A new instance of `TableView`.
+    pub(crate) fn new(
+        vm: Rc<ViewManager>,
+        column_names: Vec<String>,
+        column_constraints: Vec<Constraint>,
+        list_fn: Box<ListFunction<T>>,
+        rowify: RowifyFn<T>,
+        stringify: fn(&T) -> String,
+        config: Arc<Config>,
+        view_state: Arc<Mutex<TableViewState>>,
+        delete_fn: DeleteFn<T>,
+        editor_modal_view_builder: Option<EditorViewBuilder<T>>,
+    ) -> Self {
+        let fuzzy_match = false;
+        TableView {
+            vm: vm.clone(),
+            tx: vm.tx(),
+            data_model: DataViewModel::new(list_fn, fuzzy_match),
+            column_names,
+            column_constraints,
+            table_state: TableState::default(),
+            table_rows_count: 0,
+            rowify,
+            stringify,
+            styles: config.styles.clone(),
+            view_state,
+            delete_fn,
+            editor_modal_view_builder,
+            match_area: Rect::new(0, 0, 0, 0),
+        }
+    }
+
+    /// Get the index of the currently selected row, if any.
+    fn selected_row(&self) -> Option<usize> {
+        let selected = self.table_state.selected_cell();
+        selected.map(|pos| pos.0)
+    }
+
+    /// Handle the chosen item and return its string representation.
+    fn handle_chosen(&self) -> Option<String> {
+        debug!("handle_chosen");
+        if let Some(items) = &self.data_model.entries {
+            let current_row = self.selected_row();
+            current_row.map(|row| (self.stringify)(&items[row]))
+        } else {
+            warn!("No data!");
+            None
+        }
+    }
+
+    /// Handle moving the selection down in the table.
+    fn handle_down(&mut self, jump: bool, page: bool) {
+        if self.data_model.entries.is_none() {
+            debug!("No data");
+            return;
+        }
+        let current_row = self.selected_row();
+        if let Some(current_row) = current_row {
+            let mut offset = if jump { JUMP_OFFSET } else { 1 };
+            offset = if page {
+                self.table_rows_count as usize
+            } else {
+                offset
+            };
+            debug!(
+                "current row={} length={}",
+                current_row, self.data_model.length
+            );
+            if (current_row == (self.table_rows_count - 1) as usize) || page {
+                let view_state_lock = self.view_state.lock().unwrap();
+                self.data_model.update_to_offset(
+                    offset as i64,
+                    self.table_rows_count,
+                    view_state_lock.search_string.as_str(),
+                );
+            }
+            let mut next = current_row + offset;
+            if next >= self.data_model.length as usize {
+                next = (self.data_model.length - 1) as usize;
+            }
+            self.table_state.select(Some(next));
+        } else {
+            debug!("no current row");
+        }
+    }
+
+    /// Handle moving the selection up in the table.
+    fn handle_up(&mut self, jump: bool, page: bool) {
+        if self.data_model.entries.is_none() {
+            debug!("No data");
+            return;
+        }
+        let current_row = self.selected_row();
+        if let Some(current_row) = current_row {
+            let mut offset = if jump { JUMP_OFFSET } else { 1 };
+            offset = if page {
+                self.table_rows_count as usize
+            } else {
+                offset
+            };
+            debug!(
+                "current row={} length={}",
+                current_row, self.data_model.length
+            );
+            if (current_row == 0) || page {
+                let view_state_lock = self.view_state.lock().unwrap();
+                self.data_model.update_to_offset(
+                    -(offset as i64),
+                    self.table_rows_count,
+                    view_state_lock.search_string.as_str(),
+                );
+            }
+            let mut next: i64 = (current_row as i64) - offset as i64;
+            if next < 0 {
+                next = 0;
+            }
+            self.table_state.select(Some(next as usize));
+        } else {
+            debug!("no current row");
+        }
+    }
+
+    fn deletion_confirmation_callback(
+        &mut self,
+        confirmation_view: &Confirmation,
+    ) -> ManagerAction {
+        debug!("confirmation_callback={}", confirmation_view.is_yes());
+        if confirmation_view.is_yes()
+            && let Some(items) = &self.data_model.entries
+        {
+            let current_row = self.selected_row();
+            info!("deletion items at row='{:?}'", current_row);
+            (self.delete_fn)(&items[current_row.unwrap()]);
+            self.data_model.reload();
+        }
+        ManagerAction::new(true)
+    }
+
+    /// Handle deleting the currently selected item.
+    fn handle_delete(&mut self) {
+        debug!("handle_delete");
+        if let Some(items) = &self.data_model.entries {
+            let current_row = self.selected_row();
+            let vb = Confirmation::builder(
+                String::from("Deletion of?\n")
+                    + (self.stringify)(&items[current_row.unwrap()]).as_str(),
+                self.styles.clone(),
+            );
+            self.vm
+                .show_modal(vb, Some(Self::deletion_confirmation_callback));
+        }
+    }
+
+    fn handle_modal_event(&mut self) {
+        debug!("handle_modal_event");
+        let mut current_row: usize = 0;
+        if self.data_model.entries.is_some() {
+            current_row = match self.selected_row() {
+                Some(row) => row,
+                None => {
+                    debug!("No row selected");
+                    return;
+                }
+            };
+        }
+        if let Some(modal_view_builder) = &mut self.editor_modal_view_builder
+            && let Some(items) = &self.data_model.entries
+        {
+            debug!("calling show_modal_generic");
+            let vb = modal_view_builder(items[current_row].clone());
+            self.vm.show_modal_generic(*vb, None);
         }
     }
 

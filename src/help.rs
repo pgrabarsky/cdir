@@ -1,24 +1,46 @@
-use crate::config::Config;
-use crossterm::event;
+use crossterm::event::{KeyCode, KeyEvent};
 use log::debug;
-use ratatui::style::Style;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Padding, Paragraph};
-use ratatui::{DefaultTerminal, Frame};
+use ratatui::{
+    layout::Rect,
+    style::Style,
+    text::{Line, Span},
+    widgets::{Block, Borders, Clear, Padding, Paragraph},
+};
 
-pub(crate) fn help_run(terminal: &mut DefaultTerminal, config: &Config) {
-    debug!("help_run...");
-    terminal
-        .draw(|frame: &mut Frame| help_draw(frame, config))
-        .unwrap();
-    event::read().unwrap();
+use crate::{
+    theme::ThemeStyles,
+    tui::{EventCaptured, ManagerAction, View, ViewBuilder},
+};
+
+pub struct Help {
+    styles: ThemeStyles,
 }
 
-fn help_draw(frame: &mut Frame, config: &Config) {
-    let ts = config.styles.text_style;
-    let es = config.styles.text_em_style;
+impl Help {
+    pub fn builder(styles: ThemeStyles) -> ViewBuilder {
+        ViewBuilder::from(Box::new(Self { styles }))
+    }
+}
 
-    let message = Paragraph::new(vec![
+impl View for Help {
+    fn handle_key_event(&mut self, key_event: KeyEvent) -> (EventCaptured, ManagerAction) {
+        match key_event.code {
+            KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') => (
+                EventCaptured::Yes,
+                ManagerAction::new(false).with_close(true),
+            ),
+            _ => (EventCaptured::Yes, ManagerAction::new(false)),
+        }
+    }
+
+    fn draw(&mut self, frame: &mut ratatui::Frame, modal_area: Rect, _active: bool) {
+        debug!("Drawing help active");
+        frame.render_widget(Clear, modal_area);
+
+        let ts = self.styles.text_style;
+        let es = self.styles.text_em_style;
+
+        let message = Paragraph::new(vec![
         Line::from(vec![
             Span::styled("Use ", ts),
             Span::styled("tab", es),
@@ -89,16 +111,15 @@ fn help_draw(frame: &mut Frame, config: &Config) {
     .block(
         Block::default()
             .padding(Padding::new(1, 1, 1, 1))
-            .title(Span::styled(
-                " cdir help ",
-                config.styles.title_style,
-            ))
+            .title(Span::styled(" cdir help ", self.styles.title_style))
             .borders(Borders::ALL),
     );
-    // Fill the frame with the background color if defined
-    if let Some(bg_color) = &config.styles.background_color {
-        let background = Paragraph::new("").style(Style::default().bg(*bg_color));
-        frame.render_widget(background, frame.area());
+
+        // Fill the frame with the background color if defined
+        if let Some(bg_color) = &self.styles.background_color {
+            let background = Paragraph::new("").style(Style::default().bg(*bg_color));
+            frame.render_widget(background, frame.area());
+        }
+        frame.render_widget(message, frame.area());
     }
-    frame.render_widget(message, frame.area());
 }

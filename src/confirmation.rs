@@ -1,17 +1,21 @@
-use crate::tableview::ModalView;
-use crate::theme::ThemeStyles;
-use crossterm::event::{Event, KeyCode};
+use crossterm::event::{KeyCode, KeyEvent};
 use log::debug;
-use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
-use ratatui::Frame;
+use ratatui::{
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    widgets::{Block, Borders, Clear, Paragraph},
+};
+
+use crate::{
+    theme::ThemeStyles,
+    tui::{EventCaptured, ManagerAction, View, ViewBuilder, ViewManager},
+};
 
 pub struct Confirmation {
     styles: ThemeStyles,
     pub message: String,
     selected: ConfirmationButton,
-    pub result: Option<bool>, // Some(true) for Yes, Some(false) for Cancel, None for undecided
+    result: bool,
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -21,48 +25,20 @@ enum ConfirmationButton {
 }
 
 impl Confirmation {
-    pub fn new(message: String, styles: ThemeStyles) -> Self {
-        Self {
+    pub fn builder(message: String, styles: ThemeStyles) -> ViewBuilder {
+        ViewBuilder::from(Box::new(Self {
             styles,
             message,
             selected: ConfirmationButton::Yes,
-            result: None,
-        }
+            result: false,
+        }))
     }
+
+    pub fn is_yes(&self) -> bool { self.result }
 }
 
-impl ModalView<bool> for Confirmation {
-    fn initialize(&mut self, _item: &bool) {
-        self.selected = ConfirmationButton::Yes;
-        self.result = None;
-    }
-
-    fn handle_event(&mut self, event: Event) -> bool {
-        if let Event::Key(key) = event {
-            match key.code {
-                KeyCode::Left | KeyCode::Right | KeyCode::Tab => {
-                    // Toggle selection
-                    self.selected = match self.selected {
-                        ConfirmationButton::Yes => ConfirmationButton::Cancel,
-                        ConfirmationButton::Cancel => ConfirmationButton::Yes,
-                    };
-                }
-                KeyCode::Enter | KeyCode::Char(' ') => {
-                    let is_yes = self.selected == ConfirmationButton::Yes;
-                    self.result = Some(is_yes);
-                    return false; // Close modal
-                }
-                KeyCode::Esc => {
-                    self.result = Some(false);
-                    return false; // Close modal
-                }
-                _ => {}
-            }
-        }
-        true // Keep modal open
-    }
-
-    fn draw(&mut self, frame: &mut Frame) {
+impl View for Confirmation {
+    fn draw(&mut self, frame: &mut ratatui::Frame, _area: Rect, _active: bool) {
         debug!("Drawing confirmation");
 
         // Calculate max line length of the message
@@ -73,27 +49,7 @@ impl ModalView<bool> for Confirmation {
         let modal_width = std::cmp::max(min_width, max_line_len + padding) as u16;
         let modal_height = 7;
 
-        // Modal area: center of the screen, dynamic width
-        let area = frame.area();
-        if modal_width < 1 || modal_height < 1 || area.width < 1 || area.height < 1 {
-            return;
-        }
-        let modal_x = area.x + (area.width.saturating_sub(modal_width)) / 2;
-        let modal_y = area.y + (area.height.saturating_sub(modal_height)) / 2;
-        // Check if the modal fits entirely within the area
-        if modal_x < area.x
-            || modal_y < area.y
-            || modal_x + modal_width > area.x + area.width
-            || modal_y + modal_height > area.y + area.height
-        {
-            return;
-        }
-        let modal_area = ratatui::layout::Rect {
-            x: modal_x,
-            y: modal_y,
-            width: modal_width,
-            height: modal_height,
-        };
+        let modal_area = ViewManager::centered_rect(frame.area(), modal_width, modal_height);
 
         frame.render_widget(Clear, modal_area);
         // Optional: background color for modal
@@ -174,5 +130,29 @@ impl ModalView<bool> for Confirmation {
             .alignment(ratatui::layout::Alignment::Center);
         frame.render_widget(yes, button_layout[0]);
         frame.render_widget(cancel, button_layout[2]);
+    }
+
+    fn handle_key_event(&mut self, key_event: KeyEvent) -> (EventCaptured, ManagerAction) {
+        let mut redraw = false;
+        let mut close = false;
+        match key_event.code {
+            KeyCode::Left | KeyCode::Right | KeyCode::Tab => {
+                // Toggle selection
+                self.selected = match self.selected {
+                    ConfirmationButton::Yes => ConfirmationButton::Cancel,
+                    ConfirmationButton::Cancel => ConfirmationButton::Yes,
+                };
+                redraw = true;
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                self.result = self.selected == ConfirmationButton::Yes;
+                close = true;
+            }
+            _ => {}
+        }
+        (
+            EventCaptured::Yes,
+            ManagerAction::new(redraw).with_close(close),
+        )
     }
 }

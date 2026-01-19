@@ -1,39 +1,40 @@
-use crate::config::Config;
-use crate::help;
-use crate::store;
-use crate::store::{Path, Shortcut, Store};
-use crate::tableview::{GuiResult, RowifyFn, TableView};
-use std::cell::RefCell;
+use std::{
+    env,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 use log::debug;
-use ratatui::style::Style;
-use ratatui::text::{Line, Span};
-use ratatui::{DefaultTerminal, widgets::Row};
+use ratatui::{
+    layout::Constraint,
+    style::Style,
+    text::{Line, Span},
+    widgets::Row,
+};
 
-use crate::shortcut_editor::ShortcutEditor;
-use ratatui::layout::Constraint;
-use std::env;
-use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use crate::{
+    config::Config,
+    help::Help,
+    shortcut_editor::ShortcutEditor,
+    store,
+    store::{Path, Shortcut, Store},
+    tableview::{RowifyFn, TableView, TableViewState},
+    tui::{ViewBuilder, ViewManager},
+};
 
-/// The several views of the application
-enum View {
-    History,
-    Shortcuts,
-}
+const PATH_HISTORY_VIEW_ID: u16 = 0;
+const SHORTCUT_VIEW_ID: u16 = 1;
 
 /// The main application structure
-pub(crate) struct Gui<'a> {
-    config: &'a Config,
-    terminal: DefaultTerminal,
-    current_view: View,
-    history_view: TableView<'a, store::Path, bool>,
-    shortcut_view: TableView<'a, store::Shortcut, bool>,
+pub(crate) struct Gui {
+    table_view_state: Arc<Mutex<TableViewState>>,
+    history_view_box: Option<Box<TableView<store::Path>>>,
+    shortcut_view_box: Option<Box<TableView<store::Shortcut>>>,
 }
 
-impl<'a> Gui<'a> {
+impl Gui {
     /// Return a Line with where HOME is replaced by '~'
-    pub(crate) fn reduce_path(path: &String, size: u16, home_tild_style: Style) -> Line<'_> {
+    pub(crate) fn reduce_path(path: String, size: u16, home_tild_style: Style) -> Line<'static> {
         if size == 0 {
             return Line::from("");
         }
@@ -43,12 +44,12 @@ impl<'a> Gui<'a> {
             Ok(home) => {
                 let spm = home.clone() + "/";
                 if path.starts_with(&spm) || path == home.as_str() {
-                    Self::do_reduce_path(path, home, size, home_tild_style)
+                    Self::do_reduce_path(&path, home, size, home_tild_style)
                 } else {
-                    Self::reduce_string(path, size as usize)
+                    Self::reduce_string(&path, size as usize)
                 }
             }
-            Err(_) => Self::reduce_string(path, size as usize),
+            Err(_) => Self::reduce_string(&path, size as usize),
         }
     }
 
@@ -174,16 +175,20 @@ impl<'a> Gui<'a> {
 
     /// Return a function that formats a row for the history view
     fn build_format_history_row_builder(
-        store: &'a store::Store,
-        config: &'a Config,
-        view_state: Rc<RefCell<bool>>,
-    ) -> RowifyFn<'a, store::Path> {
-        let view_state = view_state.clone();
+        store: store::Store,
+        config: Arc<Config>,
+        table_view_state: Arc<Mutex<TableViewState>>,
+    ) -> RowifyFn<store::Path> {
+        let table_view_state = table_view_state.clone();
+        let store = store.clone();
         Box::new(move |paths: &[Path], size: &[u16]| {
             let shortcuts: Vec<Shortcut> = store.list_all_shortcuts().unwrap();
+            let table_view_state = table_view_state.clone();
+            let config = config.clone();
             paths
                 .iter()
-                .map(|path| {
+                .map(move |path| {
+                    let path = path.clone();
                     // format the date
                     let date: Line = Line::from(
                         Span::from((config.date_formater)(path.date))
@@ -191,13 +196,20 @@ impl<'a> Gui<'a> {
                     );
 
                     // format the path
-                    let shortened_line = match *view_state.borrow() {
-                        true => Self::shorten_path(config, &shortcuts, &path.path, size[1], true),
-                        false => None,
-                    };
+                    let shortened_line =
+                        match table_view_state.lock().unwrap().display_with_shortcuts {
+                            true => Self::shorten_path(
+                                config.as_ref(),
+                                &shortcuts,
+                                &path.path,
+                                size[1],
+                                true,
+                            ),
+                            false => None,
+                        };
                     let path = shortened_line
                         .unwrap_or_else(|| {
-                            Self::reduce_path(&path.path, size[1], config.styles.home_tilde_style)
+                            Self::reduce_path(path.path, size[1], config.styles.home_tilde_style)
                         })
                         .style(config.styles.path_style);
 
@@ -210,61 +222,74 @@ impl<'a> Gui<'a> {
 
     /// Build the history view
     fn build_history_view(
-        store: &'a Store,
-        config: &'a Config,
-        view_state: &Rc<RefCell<bool>>,
-        search_string: Arc<Mutex<String>>,
-    ) -> TableView<'a, Path, bool> {
-        TableView::new(
+        &mut self,
+        view_manager: Rc<ViewManager>,
+        store: Store,
+        config: Arc<Config>,
+    ) {
+        let tv = TableView::new(
+            view_manager,
             vec!["date".to_string(), "path".to_string()],
             vec![Constraint::Length(20), Constraint::Fill(1)],
-            Box::new(|pos, len, text, fuzzy| store.list_paths(pos, len, text, fuzzy)),
+            {
+                let store = store.clone();
+                Box::new(move |pos, len, text, fuzzy| store.list_paths(pos, len, text, fuzzy))
+            },
             Box::new(Gui::build_format_history_row_builder(
-                store,
-                config,
-                view_state.clone(),
+                store.clone(),
+                config.clone(),
+                self.table_view_state.clone(),
             )),
             |path| path.path.clone(),
-            config,
-            view_state.clone(),
-            Box::new(|path| {
-                debug!("delete path: {}", path.path);
-                store.delete_path_by_id(path.id).unwrap();
-            }),
-            search_string,
+            config.clone(),
+            self.table_view_state.clone(),
+            {
+                let store = store.clone();
+                Box::new(move |path| {
+                    debug!("delete path: {}", path.path);
+                    store.delete_path_by_id(path.id).unwrap();
+                })
+            },
+            //search_string,
             None,
-        )
+        );
+        self.history_view_box = Some(Box::new(tv));
     }
 
     /// Return a function that formats a row for the history view
     fn build_format_shortcut_row_builder(
-        store: &'a store::Store,
-        config: &'a Config,
-        view_state: Rc<RefCell<bool>>,
-    ) -> RowifyFn<'a, store::Shortcut> {
-        let view_state = view_state.clone();
+        store: Store,
+        config: Arc<Config>,
+        table_view_state: Arc<Mutex<TableViewState>>,
+    ) -> RowifyFn<store::Shortcut> {
+        let table_view_state = table_view_state.clone();
+        let store = store.clone();
+        let config = config.clone();
         Box::new(move |shortcuts: &[Shortcut], size: &[u16]| {
             shortcuts
                 .iter()
                 .map(|shortcut| {
                     // format the path
-                    let shortened_line = match *view_state.borrow() {
-                        true => {
-                            let all_shortcuts: Vec<Shortcut> = store.list_all_shortcuts().unwrap();
-                            Self::shorten_path(
-                                config,
-                                &all_shortcuts,
-                                &shortcut.path,
-                                size[1],
-                                false,
-                            )
-                        }
-                        false => None,
-                    };
+                    let shortcut = shortcut.clone();
+                    let shortened_line =
+                        match table_view_state.lock().unwrap().display_with_shortcuts {
+                            true => {
+                                let all_shortcuts: Vec<Shortcut> =
+                                    store.list_all_shortcuts().unwrap();
+                                Self::shorten_path(
+                                    config.as_ref(),
+                                    &all_shortcuts,
+                                    &shortcut.path,
+                                    size[1],
+                                    false,
+                                )
+                            }
+                            false => None,
+                        };
                     let path = shortened_line
                         .unwrap_or_else(|| {
                             Self::reduce_path(
-                                &shortcut.path,
+                                shortcut.path,
                                 size[1],
                                 config.styles.home_tilde_style,
                             )
@@ -277,8 +302,13 @@ impl<'a> Gui<'a> {
                                 .style(config.styles.shortcut_name_style),
                         ),
                         path,
-                        Line::from(shortcut.description.as_ref().map_or("", |s| s.as_str()))
-                            .style(config.styles.description_style),
+                        Line::from(
+                            shortcut
+                                .description
+                                .clone()
+                                .unwrap_or_else(|| "".to_string()),
+                        )
+                        .style(config.styles.description_style),
                     ])
                 })
                 .collect()
@@ -287,12 +317,23 @@ impl<'a> Gui<'a> {
 
     /// Build the shortcut view
     fn build_shortcut_view(
-        store: &'a Store,
-        config: &'a Config,
-        view_state: Rc<RefCell<bool>>,
-        search_string: Arc<Mutex<String>>,
-    ) -> TableView<'a, Shortcut, bool> {
-        TableView::new(
+        &mut self,
+        view_manager: Rc<ViewManager>,
+        store: Store,
+        config: Arc<Config>,
+    ) {
+        let modal_store = store.clone();
+        let modal_config = config.clone();
+        let editor_modal_view_builder = Box::new(move |shortcut: Shortcut| {
+            Box::new(ViewBuilder::from(Box::new(ShortcutEditor::new(
+                modal_store.clone(),
+                modal_config.clone(),
+                shortcut.clone(),
+            ))))
+        });
+
+        let tv = TableView::new(
+            view_manager,
             vec![
                 "shortcut".to_string(),
                 "path".to_string(),
@@ -303,93 +344,88 @@ impl<'a> Gui<'a> {
                 Constraint::Fill(1),
                 Constraint::Fill(1),
             ],
-            Box::new(|pos: usize, len: usize, text: &str, fuzzy| {
-                store.list_shortcuts(pos, len, text, fuzzy)
-            }),
-            Box::new(Gui::build_format_shortcut_row_builder(
-                store,
-                config,
-                view_state.clone(),
-            )),
+            {
+                let store = store.clone();
+                Box::new(move |pos: usize, len: usize, text: &str, fuzzy| {
+                    store.list_shortcuts(pos, len, text, fuzzy)
+                })
+            },
+            {
+                let store = store.clone();
+                let config = config.clone();
+                Box::new(Gui::build_format_shortcut_row_builder(
+                    store,
+                    config,
+                    self.table_view_state.clone(),
+                ))
+            },
             |shortcut: &store::Shortcut| shortcut.path.clone(),
-            config,
-            view_state.clone(),
-            Box::new(|path| {
-                debug!("delete shortcut: {}", path.path);
-                store.delete_shortcut_by_id(path.id).unwrap();
-            }),
-            search_string,
-            Some(Box::new(ShortcutEditor::new(store.clone(), config.clone()))),
-        )
+            config.clone(),
+            self.table_view_state.clone(),
+            {
+                let store = store.clone();
+                Box::new(move |path| {
+                    debug!("delete shortcut: {}", path.path);
+                    store.delete_shortcut_by_id(path.id).unwrap();
+                })
+            },
+            Some(editor_modal_view_builder),
+        );
+        self.shortcut_view_box = Some(Box::new(tv));
     }
 
     /// Instantiate the application GUI
-    fn new(store: &'a store::Store, config: &'a Config) -> Gui<'a> {
-        let view_state = Rc::<RefCell<bool>>::new(RefCell::new(true));
-        let search_string = Arc::new(Mutex::new(String::new()));
-        Gui {
-            config,
-            terminal: ratatui::init(),
-            current_view: View::History,
-            history_view: Self::build_history_view(
-                store,
-                config,
-                &view_state,
-                search_string.clone(),
-            ),
-            shortcut_view: Self::build_shortcut_view(
-                store,
-                config,
-                view_state,
-                search_string.clone(),
-            ),
-        }
+    fn new(view_manager: Rc<ViewManager>, store: store::Store, config: Arc<Config>) -> Gui {
+        let mut gui = Gui {
+            table_view_state: Arc::new(Mutex::new(TableViewState::new())),
+            history_view_box: None,
+            shortcut_view_box: None,
+        };
+        gui.build_history_view(view_manager.clone(), store.clone(), config.clone());
+        gui.build_shortcut_view(view_manager.clone(), store.clone(), config.clone());
+
+        gui
     }
 
     /// Run the application GUI loop
-    fn run(&mut self) -> Option<String> {
-        loop {
-            let res = match self.current_view {
-                View::History => self.history_view.run(&mut self.terminal),
-                View::Shortcuts => self.shortcut_view.run(&mut self.terminal),
-            };
-            match res {
-                GuiResult::Quit => {
-                    ratatui::restore();
-                    return None;
-                }
-                GuiResult::Print(str) => {
-                    ratatui::restore();
-                    return Some(str);
-                }
-                GuiResult::Next => match self.current_view {
-                    View::History => self.current_view = View::Shortcuts,
-                    View::Shortcuts => self.current_view = View::History,
-                },
-                GuiResult::Help => {
-                    debug!("Help requested");
-                    help::help_run(&mut self.terminal, self.config);
-                }
-            }
-        }
+    async fn run(&mut self, view_manager: Rc<ViewManager>) -> Option<String> {
+        view_manager.add_view(
+            PATH_HISTORY_VIEW_ID,
+            ViewBuilder::from(self.history_view_box.take().unwrap()),
+            &[PATH_HISTORY_VIEW_ID as usize],
+        );
+        view_manager.add_view(
+            SHORTCUT_VIEW_ID,
+            ViewBuilder::from(self.shortcut_view_box.take().unwrap()),
+            &[SHORTCUT_VIEW_ID as usize],
+        );
+        view_manager.event_loop().await
     }
 }
 
 /// Launch the GUI. Returns the selected path or None if the user quit.
-pub(crate) fn gui(store: store::Store, config: Config) -> Option<String> {
-    color_eyre::install().unwrap();
-    debug!("HistoryView::new()");
-    let mut gui = Gui::new(&store, &config);
-    gui.run()
+pub(crate) async fn gui(store: store::Store, config: Arc<Config>) -> Option<String> {
+    debug!("gui");
+    let mut view_manager: Rc<ViewManager> = Rc::new(ViewManager::new());
+
+    if let Some(vm) = Rc::get_mut(&mut view_manager) {
+        let config = config.clone();
+        vm.set_global_help_view(Box::new(move || Help::builder(config.styles.clone())))
+    }
+
+    let mut gui = Gui::new(view_manager.clone(), store, config);
+    gui.run(view_manager).await
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::config::Config;
-    use crate::store::Path;
-    use crate::store::Shortcut;
     use std::env;
+
+    use super::*;
+    use crate::{
+        config::Config,
+        store::{Path, Shortcut},
+    };
 
     #[test]
     fn test_shorten_path_basic() {
@@ -551,7 +587,7 @@ mod tests {
             path: format!("{}/project", home),
             date: 0,
         };
-        let line = Gui::reduce_path(&path.path, 80, Style::new());
+        let line = Gui::reduce_path(path.path, 80, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "~/project");
     }
@@ -567,7 +603,7 @@ mod tests {
             path: home.to_string(),
             date: 0,
         };
-        let line = Gui::reduce_path(&path.path, 80, Style::new());
+        let line = Gui::reduce_path(path.path, 80, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "~");
     }
@@ -582,7 +618,7 @@ mod tests {
             path: "/other/path/project".to_string(),
             date: 0,
         };
-        let line = Gui::reduce_path(&path.path, 80, Style::new());
+        let line = Gui::reduce_path(path.path, 80, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "/other/path/project");
     }
@@ -599,27 +635,27 @@ mod tests {
             date: 0,
         };
 
-        let line = Gui::reduce_path(&path.path, 9, Style::new());
+        let line = Gui::reduce_path(path.path.clone(), 9, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "~/project");
 
-        let line = Gui::reduce_path(&path.path, 8, Style::new());
+        let line = Gui::reduce_path(path.path.clone(), 8, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "~/*oject");
 
-        let line = Gui::reduce_path(&path.path, 4, Style::new());
+        let line = Gui::reduce_path(path.path.clone(), 4, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "~/*t");
 
-        let line = Gui::reduce_path(&path.path, 3, Style::new());
+        let line = Gui::reduce_path(path.path.clone(), 3, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "~/*");
 
-        let line = Gui::reduce_path(&path.path, 2, Style::new());
+        let line = Gui::reduce_path(path.path.clone(), 2, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "~*");
 
-        let line = Gui::reduce_path(&path.path, 1, Style::new());
+        let line = Gui::reduce_path(path.path.clone(), 1, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "*");
     }
@@ -636,11 +672,11 @@ mod tests {
             date: 0,
         };
 
-        let line = Gui::reduce_path(&path.path, 2, Style::new());
+        let line = Gui::reduce_path(path.path.clone(), 2, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "~");
 
-        let line = Gui::reduce_path(&path.path, 1, Style::new());
+        let line = Gui::reduce_path(path.path.clone(), 1, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "~");
     }
@@ -657,11 +693,11 @@ mod tests {
             date: 0,
         };
 
-        let line = Gui::reduce_path(&path.path, 19, Style::new());
+        let line = Gui::reduce_path(path.path.clone(), 19, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "/other/path/project");
 
-        let line = Gui::reduce_path(&path.path, 18, Style::new());
+        let line = Gui::reduce_path(path.path.clone(), 18, Style::new());
         let line_str = line.to_string();
         assert_eq!(line_str, "*ther/path/project");
     }
