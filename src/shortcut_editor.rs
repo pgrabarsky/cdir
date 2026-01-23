@@ -1,42 +1,51 @@
-use crate::config::Config;
-use crate::store;
-use crate::store::Shortcut;
-use crate::tableview::ModalView;
-use crossterm::event::{Event, KeyCode};
+use std::sync::Arc;
+
+use crossterm::event::{KeyCode, KeyEvent};
 use log::{debug, error};
-use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout};
-use ratatui::style::Style;
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::{
+    Frame,
+    layout::{Constraint, Layout, Rect},
+    style::Style,
+    widgets::{Block, Borders, Clear, Paragraph},
+};
 use tui_textarea::{Input, TextArea};
+
+use crate::{
+    config::Config,
+    store,
+    store::Shortcut,
+    tui::{EventCaptured, ManagerAction, View},
+};
 
 pub struct ShortcutEditor {
     store: store::Store,
-    config: Config,
+    config: Arc<Config>,
     shortcut: Option<Shortcut>,
     textarea: Option<TextArea<'static>>,
 }
 
 impl ShortcutEditor {
-    pub fn new(store: store::Store, config: Config) -> Self {
+    pub fn new(store: store::Store, config: Arc<Config>, shortcut: Shortcut) -> Self {
         Self {
             store,
             config,
-            shortcut: None,
+            shortcut: Some(shortcut),
             textarea: None,
         }
     }
 }
 
-impl ModalView<Shortcut> for ShortcutEditor {
-    fn initialize(&mut self, item: &Shortcut) {
-        debug!("Initializing shortcut {}", item);
-        self.shortcut = Some(item.clone());
+impl View for ShortcutEditor {
+    fn init(&mut self) {
+        debug!("Initializing ShortcutEditor view");
         let mut textarea = TextArea::default();
         textarea.set_block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(format!("Description of '{}'", item.name.clone()))
+                .title(format!(
+                    "Description of '{}'",
+                    self.shortcut.clone().unwrap().name
+                ))
                 .title_style(self.config.styles.title_style)
                 .border_style(Style::default().fg(self.config.styles.border_color.unwrap())),
         );
@@ -47,51 +56,14 @@ impl ModalView<Shortcut> for ShortcutEditor {
         self.textarea = Some(textarea);
     }
 
-    fn handle_event(&mut self, event: Event) -> bool {
-        debug!("Handling event: {:?}", event);
-        if let Event::Key(key) = event {
-            match key.code {
-                KeyCode::Esc => {
-                    self.shortcut = None;
-                    self.textarea = None;
-                    return false;
-                }
-                KeyCode::Enter => {
-                    debug!("Saving shortcut description");
-                    if let Some(textarea) = self.textarea.as_ref() {
-                        let description = if textarea.lines().is_empty() {
-                            None
-                        } else {
-                            Some(textarea.lines()[0].as_str())
-                        };
-                        debug!("Saving description: {:?}", description);
-                        if let Some(shortcut) = self.shortcut.as_ref()
-                            && let Err(err) = self.store.update_shortcut(
-                                shortcut.id,
-                                shortcut.name.as_str(),
-                                shortcut.path.as_str(),
-                                description,
-                            )
-                        {
-                            error!("Error updating shortcut: {}", err);
-                        }
-                    }
-                    self.shortcut = None;
-                    self.textarea = None;
-                    return false;
-                }
-                _ => {
-                    self.textarea.as_mut().unwrap().input(Input::from(key));
-                }
-            }
+    fn draw(&mut self, frame: &mut Frame, _area: Rect, _active: bool) {
+        debug!("Drawing shortcut editor");
+
+        // Only draw if we have a textarea initialized
+        if self.textarea.is_none() {
+            return;
         }
 
-        // Continue handling events
-        true
-    }
-
-    fn draw(&mut self, frame: &mut Frame) {
-        debug!("Drawing shortcut");
         let layout = Layout::vertical([
             Constraint::Fill(1),
             Constraint::Length(3),
@@ -114,5 +86,52 @@ impl ModalView<Shortcut> for ShortcutEditor {
         }
 
         frame.render_widget(self.textarea.as_ref().unwrap(), chunks[1]);
+    }
+
+    fn handle_key_event(&mut self, key_event: KeyEvent) -> (EventCaptured, ManagerAction) {
+        debug!("Handling key event: {:?}", key_event);
+        let mut close = false;
+
+        match key_event.code {
+            KeyCode::Esc => {
+                self.shortcut = None;
+                self.textarea = None;
+                close = true;
+            }
+            KeyCode::Enter => {
+                debug!("Saving shortcut description");
+                if let Some(textarea) = self.textarea.as_ref() {
+                    let description = if textarea.lines().is_empty() {
+                        None
+                    } else {
+                        Some(textarea.lines()[0].as_str())
+                    };
+                    debug!("Saving description: {:?}", description);
+                    if let Some(shortcut) = self.shortcut.as_ref()
+                        && let Err(err) = self.store.update_shortcut(
+                            shortcut.id,
+                            shortcut.name.as_str(),
+                            shortcut.path.as_str(),
+                            description,
+                        )
+                    {
+                        error!("Error updating shortcut: {}", err);
+                    }
+                }
+                self.shortcut = None;
+                self.textarea = None;
+                close = true;
+            }
+            _ => {
+                if let Some(textarea) = self.textarea.as_mut() {
+                    textarea.input(Input::from(key_event));
+                }
+            }
+        }
+
+        (
+            EventCaptured::Yes,
+            ManagerAction::new(true).with_close(close),
+        )
     }
 }

@@ -15,8 +15,8 @@ use log::{debug, error, trace};
 /// # Returns
 /// - `Result<Vec<T>, rusqlite::Error>`: A `Result` containing either a vector of data entries
 ///   (`Vec<T>`) on success or a `rusqlite::Error` on failure.
-pub(crate) type ListFunction<'store, T> =
-    dyn Fn(usize, usize, &str, bool) -> Result<Vec<T>, rusqlite::Error> + 'store;
+pub(crate) type ListFunction<T> =
+    dyn Fn(usize, usize, &str, bool) -> Result<Vec<T>, rusqlite::Error>;
 
 /// A model representing a view of data, typically used for managing and displaying
 /// a subset of entries with filtering and pagination capabilities.
@@ -31,16 +31,16 @@ pub(crate) type ListFunction<'store, T> =
 /// - `first`: The index of the first entry in the current view.
 /// - `length`: The number of entries to display in the current view.
 /// - `filter`: A string used to filter the entries based on some criteria.
-pub(crate) struct DataViewModel<'store, T> {
+pub(crate) struct DataViewModel<T> {
     pub(crate) entries: Option<Vec<T>>,
-    pub(crate) list_fn: Box<ListFunction<'store, T>>,
+    pub(crate) list_fn: Box<ListFunction<T>>,
     pub(crate) first: usize,
     pub(crate) length: u16,
     filter: String,
     fuzzy_match: bool,
 }
 
-impl<'store, T: Clone> DataViewModel<'store, T> {
+impl<T: Clone> DataViewModel<T> {
     /// Creates a new instance of `DataViewModel`.
     ///
     /// ### Parameters
@@ -49,7 +49,7 @@ impl<'store, T: Clone> DataViewModel<'store, T> {
     ///
     /// ### Returns
     /// A new `DataViewModel` instance.
-    pub(crate) fn new(list_fn: Box<ListFunction<'store, T>>, fuzzy_match: bool) -> Self {
+    pub(crate) fn new(list_fn: Box<ListFunction<T>>, fuzzy_match: bool) -> Self {
         DataViewModel {
             entries: Option::None,
             list_fn,
@@ -193,8 +193,12 @@ impl<'store, T: Clone> DataViewModel<'store, T> {
     /// Reloads the current data view by fetching new entries based on the existing
     /// starting index, length, and filter.
     pub(crate) fn reload(&mut self) {
-        let new_entries: Result<Vec<T>, rusqlite::Error> =
-            (self.list_fn)(self.first, self.length as usize, self.filter.as_str(), self.fuzzy_match);
+        let new_entries: Result<Vec<T>, rusqlite::Error> = (self.list_fn)(
+            self.first,
+            self.length as usize,
+            self.filter.as_str(),
+            self.fuzzy_match,
+        );
         match new_entries {
             Ok(new_entries) => {
                 let new_length = new_entries.len();
@@ -217,8 +221,7 @@ impl<'store, T: Clone> DataViewModel<'store, T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::model::DataViewModel;
-    use crate::store::Store;
+    use crate::{model::DataViewModel, store::Store};
 
     #[test]
     fn test_scroll() {
@@ -229,8 +232,10 @@ mod tests {
         store.add_path("/2").unwrap();
         store.add_path("/1").unwrap();
 
-        let mut model =
-            DataViewModel::new(Box::new(|pos, len, text, fuzzy| store.list_paths(pos, len, text, fuzzy)) ,false);
+        let mut model = DataViewModel::new(
+            Box::new(move |pos, len, text, fuzzy| store.list_paths(pos, len, text, fuzzy)),
+            false,
+        );
         assert!(model.entries.is_none());
 
         model.update(0, 2, "", false);

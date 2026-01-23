@@ -168,10 +168,7 @@ impl Theme {
                 .clone()
                 .or(theme.title.clone())
                 .or(DEFAULT_TITLE()),
-            title_bold: self
-                .title_bold
-                .or(theme.title_bold)
-                .or(DEFAULT_BOOL_NONE()),
+            title_bold: self.title_bold.or(theme.title_bold).or(DEFAULT_BOOL_NONE()),
             title_italic: self
                 .title_italic
                 .or(theme.title_italic)
@@ -192,10 +189,7 @@ impl Theme {
                 .or(theme.border.clone())
                 .or(DEFAULT_BORDER_COLOR()),
             text: self.text.clone().or(theme.text.clone()).or(DEFAULT_TEXT()),
-            text_bold: self
-                .text_bold
-                .or(theme.text_bold)
-                .or(DEFAULT_BOOL_NONE()),
+            text_bold: self.text_bold.or(theme.text_bold).or(DEFAULT_BOOL_NONE()),
             text_italic: self
                 .text_italic
                 .or(theme.text_italic)
@@ -218,10 +212,7 @@ impl Theme {
                 .clone()
                 .or(theme.date.clone())
                 .or(DEFAULT_COLOR_DATE()),
-            date_bold: self
-                .date_bold
-                .or(theme.date_bold)
-                .or(DEFAULT_BOOL_NONE()),
+            date_bold: self.date_bold.or(theme.date_bold).or(DEFAULT_BOOL_NONE()),
             date_italic: self
                 .date_italic
                 .or(theme.date_italic)
@@ -231,10 +222,7 @@ impl Theme {
                 .clone()
                 .or(theme.path.clone())
                 .or(DEFAULT_COLOR_PATH()),
-            path_bold: self
-                .path_bold
-                .or(theme.path_bold)
-                .or(DEFAULT_BOOL_NONE()),
+            path_bold: self.path_bold.or(theme.path_bold).or(DEFAULT_BOOL_NONE()),
             path_italic: self
                 .path_italic
                 .or(theme.path_italic)
@@ -322,9 +310,7 @@ pub struct ThemeStyles {
 }
 
 impl ThemeStyles {
-    fn build_color(color: Option<&String>) -> Option<Color> {
-        color.map(|c| c.parse().unwrap())
-    }
+    fn build_color(color: Option<&String>) -> Option<Color> { color.map(|c| c.parse().unwrap()) }
 
     fn build_style(color: Option<&String>, bold: Option<bool>, italic: Option<bool>) -> Style {
         let mut style = Style::new();
@@ -386,7 +372,5 @@ impl ThemeStyles {
 }
 
 impl Default for ThemeStyles {
-    fn default() -> Self {
-        ThemeStyles::from(&Theme::default())
-    }
+    fn default() -> Self { ThemeStyles::from(&Theme::default()) }
 }

@@ -1,9 +1,13 @@
-use crossterm::queue;
-use crossterm::style::{Attribute, Color as CrosstermColor, ContentStyle, Stylize};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::Text;
-
 use std::io::{self, Write as IoWrite};
+
+use crossterm::{
+    queue,
+    style::{Attribute, Color as CrosstermColor, ContentStyle, Stylize},
+};
+use ratatui::{
+    style::{Color, Modifier, Style},
+    text::Text,
+};
 
 /// Converts ratatui Text to ANSI-colored string using Crossterm
 pub fn text_to_ansi(text: &Text) -> String {

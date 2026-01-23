@@ -1,17 +1,15 @@
+use std::{
+    fmt, fs,
+    rc::Rc,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use log::{debug, error, info, trace};
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{CaseMatching, Normalization, Pattern},
 };
 use rusqlite::{Connection, Result, params};
-
-use log::{debug, trace};
-use log::{error, info};
-
-use std::fs;
-
-use std::fmt;
-use std::rc::Rc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 // Update this when the database schema changes with the max value value of the sql
 // files in ../dbschema (e.g. if 1.sql is the latest, this should be 1)
@@ -595,7 +593,9 @@ impl Store {
             pos, len, like_text
         );
 
-        let sql = String::from("SELECT id, name, path, description FROM shortcuts ORDER BY name asc, id desc");
+        let sql = String::from(
+            "SELECT id, name, path, description FROM shortcuts ORDER BY name asc, id desc",
+        );
         let mut stmt = match self.db_conn.prepare(sql.as_str()) {
             Ok(stmt) => stmt,
             Err(e) => {
@@ -626,7 +626,9 @@ impl Store {
                         s.push_str(desc);
                     }
                     let s = Utf32Str::new(&s, &mut buf);
-                    matches.score(s, &mut matcher).map(|score| (shortcut, score))
+                    matches
+                        .score(s, &mut matcher)
+                        .map(|score| (shortcut, score))
                 } else {
                     None
                 }

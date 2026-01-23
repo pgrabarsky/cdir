@@ -8,7 +8,7 @@ repository = "https://github.com/AmadeusITGroup/cdir"
 chrono = { version = "0.4.42", features = ["clock"] }
 clap = { version = "4.5.48", features = ["derive"] }
 color-eyre = "0.6.5"
-crossterm = "0.28.1"
+crossterm = {version = "0.28.1", features = ["event-stream"]}
 log = "0.4.22"
 ratatui = "0.29.0"
 rusqlite = { version = "0.37.0", features = ["bundled"] }
@@ -20,6 +20,8 @@ serde_yaml = "0.9.34"
 tui-textarea = "0.7.0"
 dark-light = { git = "https://github.com/rust-dark-light/dark-light.git", rev = "0f18d2fbcaa5d1c175db8aae7d53428988d7e961" }
 nucleo-matcher = "0.3.1"
+tokio = {version="1.49.0", features=["full"]}
+tokio-stream = {version="0.1.18", features = ["sync"]}
 
 # The profile that 'dist' will build with
 [profile.dist]

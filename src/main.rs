@@ -9,20 +9,24 @@ mod store;
 mod tableview;
 mod text_to_ansi;
 mod theme;
+mod tui;
 
-use crate::expimp::load_shortcuts_from_yaml;
-use crate::store::Shortcut;
-use crate::text_to_ansi::text_to_ansi;
+use std::{
+    error::Error,
+    fs::File,
+    io::Write,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+
 use clap::{Parser, Subcommand};
 use config::Config;
 use expimp::load_paths_from_yaml;
 use log::{debug, error, info};
 use ratatui::text::Text;
-use std::error::Error;
-use std::fs::File;
-use std::io::Write;
-use std::path::{Path, PathBuf};
 use store::Store;
+
+use crate::{expimp::load_shortcuts_from_yaml, store::Shortcut, text_to_ansi::text_to_ansi};
 
 /// cdir helps you to switch quickly and easily between directories
 #[derive(Parser, Debug)]
@@ -79,7 +83,9 @@ fn initialize_logs(config_path: &Option<PathBuf>) {
     };
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    color_eyre::install()?;
     let args = Args::parse();
     let mut config = match Config::load(args.config_file.clone()) {
         Ok(config) => config,
@@ -93,10 +99,17 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     info!("Starting with args={args:?}");
 
-    let store = Store::new(config.db_path.as_ref().unwrap());
+    let config = Arc::new(config);
+
+    let store = Store::new(
+        config
+            .db_path
+            .as_ref()
+            .expect("missing db_path into the configuration"),
+    );
     match &args.command {
         Some(Commands::Gui { filename }) => {
-            if let Some(s) = gui::gui(store, config) {
+            if let Some(s) = gui::gui(store, config.clone()).await {
                 match filename {
                     None => {
                         println!("{}", s);
@@ -133,19 +146,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             path,
             description,
         }) => {
-            //store.add_path(path).unwrap();
             debug!("AddShortcut {} {} {:?}", name, path, description);
             store
                 .add_shortcut(name, path, description.as_ref().map(|s| s.as_str()))
                 .unwrap()
         }
         Some(Commands::DeleteShortcut { name }) => {
-            //store.add_path(path).unwrap();
             debug!("DeleteShortcut {}", name);
             store.delete_shortcut(name).unwrap();
         }
         Some(Commands::PrintShortcut { name }) => {
-            //store.add_path(path).unwrap();
             debug!("PrintShortcut {}", name);
             match store.find_shortcut(name) {
                 None => {}
@@ -167,14 +177,17 @@ fn main() -> Result<(), Box<dyn Error>> {
             style,
             max_width,
         }) => {
+            let config1 = config.clone();
+            let config2 = config.clone();
             let max_width = max_width.unwrap_or(u16::MAX);
             let shortcuts: Vec<Shortcut> = store.list_all_shortcuts().unwrap();
-            let shortened_line = gui::Gui::shorten_path(&config, &shortcuts, path, max_width, true);
+            let shortened_line =
+                gui::Gui::shorten_path(config.as_ref(), &shortcuts, path, max_width, true);
             let shortened_line = shortened_line
                 .unwrap_or_else(|| {
-                    gui::Gui::reduce_path(path, max_width, config.styles.home_tilde_style)
+                    gui::Gui::reduce_path(path.clone(), max_width, config1.styles.home_tilde_style)
                 })
-                .style(config.styles.path_style);
+                .style(config2.styles.path_style);
             if style.is_none_or(|s| s) {
                 print!("{}", text_to_ansi(&Text::from(shortened_line)));
             } else {

@@ -1,14 +1,10 @@
-use crate::theme::{Theme, ThemeStyles};
+use std::{env, fs, io::Write, path::PathBuf};
+
 use chrono::{DateTime, Local};
-use log::debug;
-use log::error;
-use log::info;
-use log::trace;
+use log::{debug, error, info, trace};
 use serde::{Deserialize, Serialize};
-use std::env;
-use std::fs;
-use std::io::Write;
-use std::path::PathBuf;
+
+use crate::theme::{Theme, ThemeStyles};
 
 pub(crate) const CDIR_CONFIG_VAR: &str = "CDIR_CONFIG";
 
@@ -87,6 +83,10 @@ pub struct Config {
     #[serde(skip, default = "DEFAULT_DATE_FORMATER")]
     pub date_formater: Box<dyn Fn(i64) -> String>,
 }
+
+// Not really true, but good enough for our use case as it is the case after initialization (immutable config)
+unsafe impl Send for Config {}
+unsafe impl Sync for Config {}
 
 impl Config {
     fn build_config_file_path(config_file_path: Option<PathBuf>) -> PathBuf {

@@ -1,8 +1,9 @@
-use crate::store::Store;
+use std::{fs, path::PathBuf};
+
 use log::error;
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::PathBuf;
+
+use crate::store::Store;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct Path {
