@@ -53,16 +53,32 @@ impl ManagedView {
             .clone()
     }
 
-    pub(super) fn draw(&mut self, frame: &mut ratatui::Frame, active_view_id: Option<String>) {
+    pub(super) fn draw(
+        &mut self,
+        frame: &mut ratatui::Frame,
+        active_view_id: Option<String>,
+        force_active: bool,
+    ) {
         trace!("ManagedView {} draw area {:?}", self.id, self.area);
 
-        let is_active = active_view_id
-            .as_ref()
-            .is_some_and(|active_view_id| active_view_id.eq(&self.unique_id));
+        let mut force_active = force_active;
+
+        let is_active = force_active
+            || active_view_id
+                .as_ref()
+                .is_some_and(|active_view_id| active_view_id.eq(&self.unique_id));
+
         self.view.draw(frame, self.area, is_active);
+
+        if is_active && self.view.capture_focus() {
+            force_active = true;
+        }
+
         for child in &self.children {
             frame.render_widget(Clear, child.borrow().area);
-            child.borrow_mut().draw(frame, active_view_id.clone());
+            child
+                .borrow_mut()
+                .draw(frame, active_view_id.clone(), force_active);
         }
         trace!("exit ManagedView {} draw", self.id);
     }

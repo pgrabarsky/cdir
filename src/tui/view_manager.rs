@@ -1,4 +1,4 @@
-use std::{cell::RefCell, ops::Add, rc::Rc};
+use std::{cell::RefCell, collections::HashSet, ops::Add, rc::Rc};
 
 use crossterm::event::{
     DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode, KeyEvent, KeyModifiers,
@@ -98,10 +98,11 @@ impl ViewManager {
     }
 
     pub fn show_modal_generic(&self, v: ViewBuilder, callback: Option<ModalCallBack>) {
+        debug!("show_modal_generic");
         let mut modal_view = v.build();
 
         // modal are initialized on the fly...
-        modal_view.view.init();
+        self.init_view_tree(&mut modal_view);
 
         let entry = ModalEntry {
             modal_view,
@@ -111,6 +112,14 @@ impl ViewManager {
         self.modal_views
             .borrow_mut()
             .push(Rc::new(RefCell::new(entry)));
+    }
+
+    fn init_view_tree(&self, mv: &mut ManagedView) {
+        mv.view.init();
+        for child in mv.children.iter() {
+            let mut child = child.borrow_mut();
+            self.init_view_tree(&mut child);
+        }
     }
 
     /// Shows a modal with a type-safe callback that receives the parent view with its concrete type.
@@ -155,6 +164,11 @@ impl ViewManager {
     fn register_receive_views(&self, mv: Rc<RefCell<ManagedView>>) {
         if mv.borrow().publish_events {
             self.receive_events_views.borrow_mut().push(mv.clone());
+            debug!(
+                "register_receive_views view id='{}' unique_id='{}' will receive events",
+                mv.borrow().id,
+                mv.borrow().unique_id
+            );
         }
         for rc_mv in mv.borrow().children.iter() {
             self.register_receive_views(rc_mv.clone());
@@ -176,14 +190,15 @@ impl ViewManager {
         let mut v = v.build();
         v.id = id as usize;
 
-        // Initialize the view
-        v.view.init();
-
         // Register views that receive events
         let rc = Rc::new(RefCell::new(v));
-        if rc.borrow().publish_events {
-            self.register_receive_views(rc.clone());
-        }
+
+        // Initialize the view
+        self.init_view_tree(&mut rc.borrow_mut());
+
+        // Register views to be notified
+        self.register_receive_views(rc.clone());
+
         self.views.borrow_mut().push(rc);
 
         if active_path.is_empty() {
@@ -206,17 +221,21 @@ impl ViewManager {
         let area = Rect::new(0, 0, columns, rows);
         for mv in self.views.borrow().iter() {
             let mut managed_view = mv.borrow_mut();
-            managed_view.area = area;
-            let cs = managed_view.view.resize(area);
-            for (id, rect) in cs {
-                for child in managed_view.children.iter() {
-                    if child.borrow().id as u16 == id {
-                        child.borrow_mut().area = rect;
-                    }
+            self.resize_managed_view(&mut managed_view, area);
+        }
+        trace!("exit ViewManager resize");
+    }
+
+    fn resize_managed_view(&self, managed_view: &mut ManagedView, area: Rect) {
+        managed_view.area = area;
+        let cs = managed_view.view.resize(area);
+        for (id, rect) in cs {
+            for child in managed_view.children.iter() {
+                if child.borrow().id as u16 == id {
+                    self.resize_managed_view(&mut child.borrow_mut(), rect);
                 }
             }
         }
-        trace!("exit ViewManager resize");
     }
 
     pub fn draw(&self, frame: &mut ratatui::Frame) {
@@ -239,7 +258,7 @@ impl ViewManager {
             let idx = *self.top_level_view_idx.borrow();
             let mut managed_view = views[idx].borrow_mut();
             trace!("drawing view {}", managed_view.id);
-            managed_view.draw(frame, active_view_id);
+            managed_view.draw(frame, active_view_id, false);
         }
 
         // draw modal views
@@ -257,7 +276,7 @@ impl ViewManager {
             } else {
                 None
             };
-            modal_entry.modal_view.draw(frame, p);
+            modal_entry.modal_view.draw(frame, p, false);
         }
         trace!("exit ViewManager draw");
     }
@@ -287,6 +306,7 @@ impl ViewManager {
 
         // If the modal should close and has a callback, execute it
         let final_action = if action.close() && modal_entry.on_close.is_some() {
+            debug!("modal is closing with callback");
             let mut callback_action = ManagerAction::new(true);
 
             if let Some(callback) = modal_entry.on_close.take() {
@@ -301,6 +321,9 @@ impl ViewManager {
                 .with_close(true)
                 .with_resize(callback_action.resize())
         } else {
+            if action.close() {
+                debug!("modal is closing without callback");
+            }
             action
         };
 
@@ -312,6 +335,8 @@ impl ViewManager {
 
     /// Handles key events for the active view hierarchy.
     ///
+    /// Processes a single view's key event handling and optionally broadcasts to children.
+    ///
     /// This method iterates through the active view stack in reverse order (leaf to root),
     /// allowing child views to handle events before their parents. The first view that
     /// captures the event determines the resulting action.
@@ -319,29 +344,70 @@ impl ViewManager {
     /// # Returns
     /// - `Some(ManagerAction)` if a view in the hierarchy handled the event
     /// - `None` if no active views exist or none captured the event
+    ///
+    /// # Returns
+    /// `(event_captured, merged_action)` - Whether the event was captured and the resulting action
     fn handle_active_view_key_event(&self, key_event: KeyEvent) -> Option<ManagerAction> {
+        debug!("handle_active_view_key_event {:?}", key_event);
         let top_level_view_idx = *self.top_level_view_idx.borrow();
         let active_view_vec = &self.active_view.borrow()[top_level_view_idx];
         let views = active_view_vec.as_ref()?;
 
+        let mut called_views: HashSet<String> = HashSet::new();
+        let mut merged_action = ManagerAction::new(false);
+
         // Iterate from leaf to root, giving child views first chance to handle events
         for view in views.iter().rev() {
-            // Set this view as the context for any modal operations
-            self.context_view.replace(Some(view.clone()));
-
-            let mut managed_view = view.borrow_mut();
-            let (event_captured, action) = managed_view.view.handle_key_event(key_event);
+            let (event_captured, action) =
+                self.process_view_key_event(key_event, view, &mut called_views);
+            merged_action.merge(&action);
 
             if let EventCaptured::Yes = event_captured {
-                trace!(
-                    "view {} handled the key_event redraw={} resize={}",
-                    managed_view.unique_id, action.redraw, action.resize
-                );
                 return Some(action);
             }
         }
 
-        None
+        Some(merged_action)
+    }
+
+    fn process_view_key_event(
+        &self,
+        key_event: KeyEvent,
+        view: &Rc<RefCell<ManagedView>>,
+        called_views: &mut HashSet<String>,
+    ) -> (EventCaptured, ManagerAction) {
+        let unique_id = view.borrow().unique_id.clone();
+
+        // Skip if already processed
+        if !called_views.insert(unique_id) {
+            return (EventCaptured::No, ManagerAction::new(false));
+        }
+
+        self.context_view.replace(Some(view.clone()));
+
+        let mut managed_view = view.borrow_mut();
+
+        let (event_captured, mut merged_action) = managed_view.view.handle_key_event(key_event);
+        let should_broadcast = managed_view.view.broadcast_keyboard_events();
+        let children: Vec<_> = managed_view.children.to_vec();
+        drop(managed_view);
+
+        // Broadcast to children if enabled
+        if should_broadcast {
+            debug!("broadcast is active");
+            for child in children {
+                debug!(
+                    "handling child id='{}', unique_id='{}'",
+                    child.borrow().id,
+                    child.borrow().unique_id
+                );
+                let (_, action) = self.process_view_key_event(key_event, &child, called_views);
+                merged_action.merge(&action);
+            }
+            debug!("end of broadcast");
+        }
+
+        (event_captured, merged_action)
     }
 
     pub fn handle_key_event(&self, key_event: KeyEvent) -> ManagerAction {
@@ -461,6 +527,9 @@ impl ViewManager {
                 current_view.borrow().unique_id,
                 position
             );
+            if current_view.borrow().view.capture_focus() {
+                return Some(active_view_vec);
+            }
 
             let next_view = current_view
                 .borrow()
@@ -497,6 +566,11 @@ impl ViewManager {
                 GenericEvent::ApplicationEvent(ae) => {
                     debug!("received application event: '{}'", ae.id);
                     for rv in self.receive_events_views.borrow().iter() {
+                        debug!(
+                            "notifying view id='{}', unique_id='{}'",
+                            rv.borrow().id,
+                            rv.borrow().unique_id
+                        );
                         rv.borrow_mut().view.handle_application_event(ae);
                     }
                 }
@@ -752,8 +826,6 @@ mod tests {
 
     #[test]
     fn test_centered_rect() {
-        let vm = ViewManager::new();
-
         // Test centering in a 100x50 area
         let area = Rect::new(0, 0, 100, 50);
         let centered = ViewManager::centered_rect(area, 20, 10);
