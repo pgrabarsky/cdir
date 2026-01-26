@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use log::debug;
 use ratatui::{
-    layout::Rect,
+    layout::{Constraint, Layout, Rect},
     style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Padding, Paragraph},
@@ -35,6 +35,21 @@ impl View for Help {
 
     fn draw(&mut self, frame: &mut ratatui::Frame, modal_area: Rect, _active: bool) {
         debug!("Drawing help active");
+
+        let layout = Layout::vertical([
+            Constraint::Fill(1),
+            Constraint::Length(15),
+            Constraint::Fill(1),
+        ]);
+        let chunks = layout.split(modal_area);
+        let center_layout = Layout::horizontal([
+            Constraint::Fill(1),
+            Constraint::Length(100),
+            Constraint::Fill(1),
+        ]);
+        let chunks = center_layout.split(chunks[1]);
+        let modal_area = chunks[1];
+
         frame.render_widget(Clear, modal_area);
 
         let ts = self.styles.text_style;
@@ -112,14 +127,14 @@ impl View for Help {
         Block::default()
             .padding(Padding::new(1, 1, 1, 1))
             .title(Span::styled(" cdir help ", self.styles.title_style))
-            .borders(Borders::ALL),
+            .borders(Borders::ALL)
     );
 
         // Fill the frame with the background color if defined
         if let Some(bg_color) = &self.styles.background_color {
             let background = Paragraph::new("").style(Style::default().bg(*bg_color));
-            frame.render_widget(background, frame.area());
+            frame.render_widget(background, modal_area);
         }
-        frame.render_widget(message, frame.area());
+        frame.render_widget(message, modal_area);
     }
 }

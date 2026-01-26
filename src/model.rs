@@ -1,4 +1,15 @@
+use std::sync::Arc;
+
 use log::{debug, error, trace};
+use tokio::sync::broadcast;
+
+use crate::tui::{GenericEvent, event::ApplicationEvent};
+
+// "data.payload"
+pub struct DataStatePayload {
+    pub objects_type: String,
+    pub is_empty: bool,
+}
 
 /// A type alias for a function that retrieves a list of data entries based on the given parameters.
 ///
@@ -32,6 +43,8 @@ pub(crate) type ListFunction<T> =
 /// - `length`: The number of entries to display in the current view.
 /// - `filter`: A string used to filter the entries based on some criteria.
 pub(crate) struct DataViewModel<T> {
+    objects_type: String,
+    tx: broadcast::Sender<GenericEvent>,
     pub(crate) entries: Option<Vec<T>>,
     pub(crate) list_fn: Box<ListFunction<T>>,
     pub(crate) first: usize,
@@ -48,15 +61,37 @@ impl<T: Clone> DataViewModel<T> {
     ///   the specified range and filter text.
     ///
     /// ### Returns
-    /// A new `DataViewModel` instance.
-    pub(crate) fn new(list_fn: Box<ListFunction<T>>, fuzzy_match: bool) -> Self {
+    /// A new `DataViewModel` instance.    
+    pub(crate) fn new(
+        objects_type: String,
+        tx: broadcast::Sender<GenericEvent>,
+        list_fn: Box<ListFunction<T>>,
+        fuzzy_match: bool,
+    ) -> Self {
         DataViewModel {
+            objects_type,
+            tx,
             entries: Option::None,
             list_fn,
             first: 0,
             length: 0,
             filter: String::new(),
             fuzzy_match,
+        }
+    }
+
+    fn publish(&self) {
+        let event = GenericEvent::ApplicationEvent(ApplicationEvent {
+            id: String::from("data.payload"),
+            payload: Some(Arc::new(DataStatePayload {
+                objects_type: self.objects_type.clone(),
+                is_empty: self.length == 0,
+            })),
+        });
+        debug!("model sending event={:?}", event);
+        let result = self.tx.send(event);
+        if let Err(e) = result {
+            error!("Failed to send 'data.payload' event: {}", e);
         }
     }
 
@@ -69,11 +104,10 @@ impl<T: Clone> DataViewModel<T> {
     /// ### Returns
     /// `true` if the current data view is a subset of the specified range and filter;
     /// otherwise, `false`.
-    fn is_a_subset_of(&mut self, first: usize, length: u16, text: &str) -> bool {
+    fn is_a_subset_of(&mut self, first: usize, length: u16) -> bool {
         self.entries.is_some()
             && (first >= self.first)
             && (first + length as usize <= self.first + self.length as usize)
-            && self.filter == text
     }
 
     /// Updates the current data view to a subset of the specified range and filter,
@@ -86,8 +120,8 @@ impl<T: Clone> DataViewModel<T> {
     ///
     /// ### Returns
     /// `true` if the update was successful; otherwise, `false`.
-    fn update_into_subset(&mut self, first: usize, length: u16, text: &str) -> bool {
-        if !self.is_a_subset_of(first, length, text) {
+    fn update_into_subset(&mut self, first: usize, length: u16) -> bool {
+        if !self.is_a_subset_of(first, length) {
             return false;
         }
         if let Some(self_entries) = &self.entries {
@@ -96,6 +130,7 @@ impl<T: Clone> DataViewModel<T> {
         }
         self.first = first;
         self.length = length;
+        self.publish();
         true
     }
 
@@ -105,7 +140,13 @@ impl<T: Clone> DataViewModel<T> {
             return;
         }
         self.fuzzy_match = fuzzy_match;
-        self.update(self.first, self.length, &self.filter.clone(), true);
+        self.update(self.first, self.length, true);
+    }
+
+    pub(crate) fn update_filter(&mut self, length: u16, filter: &str, fuzzy: bool) {
+        self.filter = String::from(filter);
+        self.fuzzy_match = fuzzy;
+        self.update(0, length, true);
     }
 
     /// Updates the data view with new entries based on the specified range and filter.
@@ -122,24 +163,21 @@ impl<T: Clone> DataViewModel<T> {
     ///
     /// ### Returns
     /// `true` if the data view was updated; otherwise, `false`.
-    pub(crate) fn update(&mut self, first: usize, length: u16, text: &str, force: bool) -> bool {
-        trace!(
-            "update first={} length={} text={} force={}",
-            first, length, text, force
-        );
-        if !force && !self.fuzzy_match && self.update_into_subset(first, length, text) {
+    pub(crate) fn update(&mut self, first: usize, length: u16, force: bool) -> bool {
+        trace!("update first={} length={} force={}", first, length, force);
+        if !force && !self.fuzzy_match && self.update_into_subset(first, length) {
             trace!("subset found");
             return false;
         }
         let new_entries: Result<Vec<T>, rusqlite::Error> =
-            (self.list_fn)(first, length as usize, text, self.fuzzy_match);
+            (self.list_fn)(first, length as usize, &self.filter, self.fuzzy_match);
         match new_entries {
             Ok(new_entries) => {
                 let new_length = new_entries.len();
                 if !force && (new_length != length as usize) {
                     // If we have less data than requested and it is a subset, we don't update
                     // This is the case for a scroll out of the data.
-                    if self.is_a_subset_of(first, new_length as u16, text) {
+                    if self.is_a_subset_of(first, new_length as u16) {
                         trace!("Data is a subset, no update");
                         return false;
                     }
@@ -148,8 +186,9 @@ impl<T: Clone> DataViewModel<T> {
                     self.entries = Some(new_entries);
                     self.first = first;
                     self.length = new_length as u16;
-                    self.filter = text.to_string();
-                    trace!("Updated");
+                    trace!("Updated length={}", self.length);
+                    self.publish();
+
                     true
                 } else {
                     debug!("No data found");
@@ -157,7 +196,8 @@ impl<T: Clone> DataViewModel<T> {
                         self.entries = Option::None;
                         self.first = 0;
                         self.length = 0;
-                        trace!("Forced update");
+                        trace!("Forced update length={}", self.length);
+                        self.publish();
                         return true;
                     }
                     false
@@ -180,14 +220,14 @@ impl<T: Clone> DataViewModel<T> {
     ///
     /// ### Returns
     /// `true` if the data view was updated; otherwise, `false`.
-    pub(crate) fn update_to_offset(&mut self, offset: i64, length: u16, text: &str) -> bool {
+    pub(crate) fn update_to_offset(&mut self, offset: i64, length: u16) -> bool {
         let first: usize = if self.first as i64 + offset < 0 {
             0
         } else {
             (self.first as i64 + offset) as usize
         };
         trace!("update_data_pos self.first={} first={}", self.first, first);
-        self.update(first, length, text, false)
+        self.update(first, length, false)
     }
 
     /// Reloads the current data view by fetching new entries based on the existing
@@ -206,10 +246,12 @@ impl<T: Clone> DataViewModel<T> {
                     self.entries = Some(new_entries);
                     self.length = new_length as u16;
                     trace!("Updated");
+                    self.publish();
                 } else {
                     debug!("No data found");
                     self.entries = Option::None;
                     self.length = 0;
+                    self.publish();
                 }
             }
             Err(err) => {
@@ -221,10 +263,13 @@ impl<T: Clone> DataViewModel<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{model::DataViewModel, store::Store};
+    use tokio::sync::broadcast;
+
+    use crate::{model::DataViewModel, store::Store, tui::GenericEvent};
 
     #[test]
     fn test_scroll() {
+        let tx = broadcast::channel::<GenericEvent>(16).0;
         let store = Store::setup_test_store();
         store.add_path("/5").unwrap();
         store.add_path("/4").unwrap();
@@ -233,63 +278,65 @@ mod tests {
         store.add_path("/1").unwrap();
 
         let mut model = DataViewModel::new(
+            "test".to_string(),
+            tx,
             Box::new(move |pos, len, text, fuzzy| store.list_paths(pos, len, text, fuzzy)),
             false,
         );
         assert!(model.entries.is_none());
 
-        model.update(0, 2, "", false);
+        model.update(0, 2, false);
         assert_eq!(model.first, 0);
         assert_eq!(model.entries.as_ref().unwrap().len(), 2);
         assert_eq!(model.entries.as_ref().unwrap()[0].path, "/1");
         assert_eq!(model.entries.as_ref().unwrap()[1].path, "/2");
 
-        model.update(1, 2, "", false);
+        model.update(1, 2, false);
         assert_eq!(model.first, 1);
         assert_eq!(model.entries.as_ref().unwrap().len(), 2);
         assert_eq!(model.entries.as_ref().unwrap()[0].path, "/2");
         assert_eq!(model.entries.as_ref().unwrap()[1].path, "/3");
 
-        model.update(2, 2, "", false);
+        model.update(2, 2, false);
         assert_eq!(model.first, 2);
         assert_eq!(model.entries.as_ref().unwrap().len(), 2);
         assert_eq!(model.entries.as_ref().unwrap()[0].path, "/3");
         assert_eq!(model.entries.as_ref().unwrap()[1].path, "/4");
 
-        model.update(3, 2, "", false);
+        model.update(3, 2, false);
         assert_eq!(model.first, 3);
         assert_eq!(model.entries.as_ref().unwrap().len(), 2);
         assert_eq!(model.entries.as_ref().unwrap()[0].path, "/4");
         assert_eq!(model.entries.as_ref().unwrap()[1].path, "/5");
 
         // The model won't update as it would only remain ["/5"] which is a subset of the current view
-        model.update(4, 2, "", false);
+        model.update(4, 2, false);
         assert_eq!(model.first, 3);
         assert_eq!(model.entries.as_ref().unwrap().len(), 2);
         assert_eq!(model.entries.as_ref().unwrap()[0].path, "/4");
         assert_eq!(model.entries.as_ref().unwrap()[1].path, "/5");
 
         // The model won't update as it would only remain []
-        model.update(5, 2, "", false);
+        model.update(5, 2, false);
         assert_eq!(model.entries.as_ref().unwrap().len(), 2);
         assert_eq!(model.entries.as_ref().unwrap()[0].path, "/4");
         assert_eq!(model.entries.as_ref().unwrap()[1].path, "/5");
 
         // Scroll back to 2
-        model.update(2, 2, "", false);
+        model.update(2, 2, false);
         assert_eq!(model.first, 2);
         assert_eq!(model.entries.as_ref().unwrap().len(), 2);
         assert_eq!(model.entries.as_ref().unwrap()[0].path, "/3");
         assert_eq!(model.entries.as_ref().unwrap()[1].path, "/4");
 
         // The model will update as ["/5"] is not a subset of the current view
-        model.update(4, 2, "", false);
+        model.update(4, 2, false);
         assert_eq!(model.first, 4);
         assert_eq!(model.entries.as_ref().unwrap().len(), 1);
         assert_eq!(model.entries.as_ref().unwrap()[0].path, "/5");
 
         // The model won't update as it would only remain []
-        model.update(5, 2, "", false);
+        model.update(5, 2, false);
         assert_eq!(model.first, 4);
         assert_eq!(model.entries.as_ref().unwrap().len(), 1);
         assert_eq!(model.entries.as_ref().unwrap()[0].path, "/5");

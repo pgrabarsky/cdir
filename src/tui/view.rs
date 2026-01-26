@@ -1,3 +1,5 @@
+use std::any::Any;
+
 use crossterm::event::{KeyEvent, MouseEvent};
 use ratatui::layout::Rect;
 
@@ -19,6 +21,12 @@ impl ManagerAction {
             resize: false,
             close: false,
         }
+    }
+
+    pub fn merge(&mut self, other: &ManagerAction) {
+        self.redraw |= other.redraw;
+        self.resize |= other.resize;
+        self.close |= other.close;
     }
 
     /// Marks that a resize operation is needed.
@@ -57,8 +65,14 @@ pub enum EventCaptured {
 /// Views are responsible for rendering themselves and handling input events.
 /// They can have child views and participate in a view hierarchy.
 #[allow(unused)]
-pub trait View {
+pub trait View: Any {
     fn init(&mut self) {}
+
+    /// Capturing the focus will prevent sub-views to get the focus that will be given to the capturing view.
+    fn capture_focus(&self) -> bool { false }
+
+    /// When set, the keyboard events sent to the view will also be sent to all sub views.
+    fn broadcast_keyboard_events(&self) -> bool { false }
 
     /// Called when the view's area changes.
     ///

@@ -15,21 +15,23 @@ use ratatui::{
 use crate::{
     config::Config,
     help::Help,
+    history_view_container::HistoryViewContainer,
+    search_text_view::SearchTextState,
     shortcut_editor::ShortcutEditor,
-    store,
-    store::{Path, Shortcut, Store},
-    tableview::{RowifyFn, TableView, TableViewState},
+    shortcut_view_container::ShortcutViewContainer,
+    store::{self, Path, Shortcut, Store},
+    tableview::{RowifyFn, TableViewState},
     tui::{ViewBuilder, ViewManager},
 };
 
-const PATH_HISTORY_VIEW_ID: u16 = 0;
+const HISTORY_VIEW_CONTAINER: u16 = 0;
 const SHORTCUT_VIEW_ID: u16 = 1;
 
 /// The main application structure
 pub(crate) struct Gui {
     table_view_state: Arc<Mutex<TableViewState>>,
-    history_view_box: Option<Box<TableView<store::Path>>>,
-    shortcut_view_box: Option<Box<TableView<store::Shortcut>>>,
+    history_view_container: Option<ViewBuilder>,
+    shortcut_view_container: Option<ViewBuilder>,
 }
 
 impl Gui {
@@ -226,9 +228,10 @@ impl Gui {
         view_manager: Rc<ViewManager>,
         store: Store,
         config: Arc<Config>,
+        search_text_state: Arc<Mutex<SearchTextState>>,
     ) {
-        let tv = TableView::new(
-            view_manager,
+        self.history_view_container = Some(HistoryViewContainer::builder(
+            view_manager.clone(),
             vec!["date".to_string(), "path".to_string()],
             vec![Constraint::Length(20), Constraint::Fill(1)],
             {
@@ -240,7 +243,7 @@ impl Gui {
                 config.clone(),
                 self.table_view_state.clone(),
             )),
-            |path| path.path.clone(),
+            |path: &Path| path.path.clone(),
             config.clone(),
             self.table_view_state.clone(),
             {
@@ -252,8 +255,8 @@ impl Gui {
             },
             //search_string,
             None,
-        );
-        self.history_view_box = Some(Box::new(tv));
+            search_text_state,
+        ));
     }
 
     /// Return a function that formats a row for the history view
@@ -321,19 +324,20 @@ impl Gui {
         view_manager: Rc<ViewManager>,
         store: Store,
         config: Arc<Config>,
+        search_text_state: Arc<Mutex<SearchTextState>>,
     ) {
         let modal_store = store.clone();
         let modal_config = config.clone();
         let editor_modal_view_builder = Box::new(move |shortcut: Shortcut| {
-            Box::new(ViewBuilder::from(Box::new(ShortcutEditor::new(
+            Box::new(ShortcutEditor::builder(
                 modal_store.clone(),
                 modal_config.clone(),
                 shortcut.clone(),
-            ))))
+            ))
         });
 
-        let tv = TableView::new(
-            view_manager,
+        self.shortcut_view_container = Some(ShortcutViewContainer::builder(
+            view_manager.clone(),
             vec![
                 "shortcut".to_string(),
                 "path".to_string(),
@@ -346,19 +350,13 @@ impl Gui {
             ],
             {
                 let store = store.clone();
-                Box::new(move |pos: usize, len: usize, text: &str, fuzzy| {
-                    store.list_shortcuts(pos, len, text, fuzzy)
-                })
+                Box::new(move |pos, len, text, fuzzy| store.list_shortcuts(pos, len, text, fuzzy))
             },
-            {
-                let store = store.clone();
-                let config = config.clone();
-                Box::new(Gui::build_format_shortcut_row_builder(
-                    store,
-                    config,
-                    self.table_view_state.clone(),
-                ))
-            },
+            Box::new(Gui::build_format_shortcut_row_builder(
+                store.clone(),
+                config.clone(),
+                self.table_view_state.clone(),
+            )),
             |shortcut: &store::Shortcut| shortcut.path.clone(),
             config.clone(),
             self.table_view_state.clone(),
@@ -369,36 +367,48 @@ impl Gui {
                     store.delete_shortcut_by_id(path.id).unwrap();
                 })
             },
+            //search_string,
             Some(editor_modal_view_builder),
-        );
-        self.shortcut_view_box = Some(Box::new(tv));
+            search_text_state,
+        ));
     }
 
     /// Instantiate the application GUI
     fn new(view_manager: Rc<ViewManager>, store: store::Store, config: Arc<Config>) -> Gui {
         let mut gui = Gui {
             table_view_state: Arc::new(Mutex::new(TableViewState::new())),
-            history_view_box: None,
-            shortcut_view_box: None,
+            history_view_container: None,
+            shortcut_view_container: None,
         };
-        gui.build_history_view(view_manager.clone(), store.clone(), config.clone());
-        gui.build_shortcut_view(view_manager.clone(), store.clone(), config.clone());
+        let search_text_state = Arc::new(Mutex::new(SearchTextState::new(view_manager.clone())));
+        gui.build_history_view(
+            view_manager.clone(),
+            store.clone(),
+            config.clone(),
+            search_text_state.clone(),
+        );
+        gui.build_shortcut_view(
+            view_manager.clone(),
+            store.clone(),
+            config.clone(),
+            search_text_state.clone(),
+        );
 
         gui
     }
 
     /// Run the application GUI loop
     async fn run(&mut self, view_manager: Rc<ViewManager>) -> Option<String> {
+        let vb = self.history_view_container.take().unwrap();
         view_manager.add_view(
-            PATH_HISTORY_VIEW_ID,
-            ViewBuilder::from(self.history_view_box.take().unwrap()),
-            &[PATH_HISTORY_VIEW_ID as usize],
+            HISTORY_VIEW_CONTAINER,
+            vb,
+            &[HISTORY_VIEW_CONTAINER as usize],
         );
-        view_manager.add_view(
-            SHORTCUT_VIEW_ID,
-            ViewBuilder::from(self.shortcut_view_box.take().unwrap()),
-            &[SHORTCUT_VIEW_ID as usize],
-        );
+
+        let vb = self.shortcut_view_container.take().unwrap();
+        view_manager.add_view(SHORTCUT_VIEW_ID, vb, &[SHORTCUT_VIEW_ID as usize]);
+
         view_manager.event_loop().await
     }
 }

@@ -14,7 +14,7 @@ use crate::{
     config::Config,
     store,
     store::Shortcut,
-    tui::{EventCaptured, ManagerAction, View},
+    tui::{EventCaptured, ManagerAction, View, ViewBuilder},
 };
 
 pub struct ShortcutEditor {
@@ -25,13 +25,13 @@ pub struct ShortcutEditor {
 }
 
 impl ShortcutEditor {
-    pub fn new(store: store::Store, config: Arc<Config>, shortcut: Shortcut) -> Self {
-        Self {
+    pub fn builder(store: store::Store, config: Arc<Config>, shortcut: Shortcut) -> ViewBuilder {
+        ViewBuilder::from(Box::new(Self {
             store,
             config,
             shortcut: Some(shortcut),
             textarea: None,
-        }
+        }))
     }
 }
 
