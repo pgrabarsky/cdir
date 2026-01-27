@@ -74,7 +74,7 @@ impl View for ShortcutViewContainer {
         let [main, bottom] = vertical.areas(area);
 
         let horizontal =
-            Layout::horizontal([Constraint::Percentage(90), Constraint::Percentage(10)]).spacing(0);
+            Layout::horizontal([Constraint::Fill(1), Constraint::Length(14)]).spacing(0);
         let [search_text_area, right] = horizontal.areas(bottom);
 
         vec![
