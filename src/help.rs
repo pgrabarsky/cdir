@@ -38,7 +38,7 @@ impl View for Help {
 
         let layout = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(15),
+            Constraint::Length(19),
             Constraint::Fill(1),
         ]);
         let chunks = layout.split(modal_area);
@@ -122,6 +122,12 @@ impl View for Help {
         ]),
         Line::from(""),
         Line::from(vec![Span::styled("Enter a text to filter.", ts)]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Use ", ts),
+            Span::styled("esc", es),
+            Span::styled(" to close this window.", ts),
+        ]),
     ])
     .block(
         Block::default()
