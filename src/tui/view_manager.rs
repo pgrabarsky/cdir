@@ -606,15 +606,11 @@ impl ViewManager {
                     KeyCode::Esc => {
                         manager_action.close = true;
                     }
-                    KeyCode::Tab => {
-                        // if there are no modal view open, switch to next top level view
-                        if self.modal_views.borrow().is_empty() {
-                            self.switch_to_next_top_level_view();
-                        }
-                        manager_action.redraw = true;
-                    }
                     _ => {
-                        if key_event.modifiers.contains(KeyModifiers::CONTROL)
+                        if key_event.code == KeyCode::Tab && self.modal_views.borrow().is_empty() {
+                            self.switch_to_next_top_level_view();
+                            manager_action.redraw = true;
+                        } else if key_event.modifiers.contains(KeyModifiers::CONTROL)
                             && let KeyCode::Char('h') = key_event.code
                             && let Some(global_help_view_builder_cb) =
                                 &self.global_help_view_builder_cb

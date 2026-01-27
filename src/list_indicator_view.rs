@@ -64,13 +64,11 @@ impl View for ListIndicatorView {
                 .bg(Color::Red)
                 .alignment(Alignment::Center)
         } else {
-            Paragraph::new("")
+            Paragraph::new("ctrl+h: help")
                 .style(
-                    Style::default().fg(Color::Black).bg(self
-                        .config
-                        .styles
-                        .free_text_area_bg_color
-                        .unwrap()),
+                    Style::default()
+                        .bg(self.config.styles.header_bg_color.unwrap())
+                        .fg(self.config.styles.header_fg_color.unwrap()),
                 )
                 .alignment(Alignment::Center)
         };
