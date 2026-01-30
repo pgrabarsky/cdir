@@ -113,7 +113,11 @@ pub trait View: Any {
     /// Returns a ManagerAction specifying what the ViewManager should do next.
     ///
     /// Default implementation takes no action.
-    fn handle_mouse_event(&mut self, mouse_event: MouseEvent) -> ManagerAction {
+    ///
+    /// # Arguments
+    /// * `area` - The rectangular area this view occupies
+    /// * `mouse_event` - The mouse event to handle
+    fn handle_mouse_event(&mut self, area: Rect, mouse_event: MouseEvent) -> ManagerAction {
         let _ = mouse_event;
         ManagerAction::new(false)
     }
