@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent};
 use log::{debug, error, warn};
 use ratatui::{
     layout::{Constraint, Layout, Position, Rect},
@@ -68,6 +68,12 @@ pub struct SearchTextView {
 impl SearchTextView {
     pub fn builder(config: Arc<Config>, state: Arc<Mutex<SearchTextState>>) -> ViewBuilder {
         ViewBuilder::from(Box::new(SearchTextView { config, state }))
+    }
+
+    pub fn toggle_fuzzy_match(&mut self) {
+        let mut state_lock = self.state.lock().unwrap();
+        state_lock.fuzzy_match = !state_lock.fuzzy_match;
+        state_lock.publish();
     }
 }
 
@@ -178,9 +184,7 @@ impl View for SearchTextView {
                     state_lock.search_string_cursor_index += 1;
                     state_lock.publish();
                 } else if c == 'f' {
-                    let mut state_lock = self.state.lock().unwrap();
-                    state_lock.fuzzy_match = !state_lock.fuzzy_match;
-                    state_lock.publish();
+                    self.toggle_fuzzy_match();
                 }
             }
             _ => {
@@ -189,5 +193,26 @@ impl View for SearchTextView {
         }
 
         (EventCaptured::No, ManagerAction::new(false))
+    }
+
+    fn handle_mouse_event(&mut self, area: Rect, mouse_event: MouseEvent) -> ManagerAction {
+        let mut ma = ManagerAction::new(false);
+
+        if !matches!(mouse_event.kind, crossterm::event::MouseEventKind::Down(_)) {
+            return ma;
+        }
+
+        let position = Position::new(mouse_event.column, mouse_event.row);
+
+        // Check if the mouse event is within the view's area
+        if !area.contains(position) {
+            return ma;
+        }
+
+        // Toggle fuzzy/exact match on click
+        self.toggle_fuzzy_match();
+
+        ma.redraw = true;
+        ma
     }
 }

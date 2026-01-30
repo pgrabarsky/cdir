@@ -4,11 +4,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use log::{debug, info, warn};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent};
+use log::{debug, info, trace, warn};
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
+    layout::{Constraint, Layout, Position, Rect},
     prelude::Style,
     style::Stylize,
     widgets::{Paragraph, Row, Table, TableState},
@@ -150,6 +150,54 @@ impl<T: Clone + 'static> View for TableView<T> {
         }
 
         (EventCaptured::Yes, ManagerAction::new(true))
+    }
+
+    fn handle_mouse_event(&mut self, area: Rect, mouse_event: MouseEvent) -> ManagerAction {
+        let mut ma = ManagerAction::new(false);
+
+        if !matches!(mouse_event.kind, crossterm::event::MouseEventKind::Down(_)) {
+            return ma;
+        }
+
+        let position = Position::new(mouse_event.column, mouse_event.row);
+
+        // Check if the mouse event is within the view's area
+        if !area.contains(position) {
+            return ma;
+        }
+
+        let relative_y = position.y.saturating_sub(area.y);
+
+        // Check if the click is within the table rows area
+        if relative_y >= TABLE_HEADER_LENGTH as u16 {
+            let row_index = relative_y - TABLE_HEADER_LENGTH as u16;
+            trace!("clicked row index: {}", row_index);
+
+            // Update selection if the clicked row is valid
+            if let Some(entries) = &self.data_model.entries {
+                let data_index = self.data_model.first + row_index as usize;
+
+                // if the selected index is the current one, exit the application with the chosen item
+                if let Some(selected_row) = self.selected_row()
+                    && selected_row == data_index
+                {
+                    debug!("send exit event");
+                    let event = GenericEvent::ViewManagerEvent(ViewManagerEvent::Exit(
+                        self.handle_chosen(),
+                    ));
+                    let _ = self.tx.send(event);
+                    return ma;
+                }
+
+                // else select the clicked row
+                if data_index < entries.len() {
+                    self.table_state.select(Some(data_index));
+                    ma.redraw = true;
+                }
+            }
+        }
+
+        ma
     }
 
     fn handle_application_event(&mut self, ae: &ApplicationEvent) {

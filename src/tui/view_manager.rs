@@ -498,17 +498,95 @@ impl ViewManager {
         Some(active_view_vec)
     }
 
-    pub fn handle_mouse_event(&self, mouse_event: MouseEvent) -> bool {
-        if matches!(mouse_event.kind, crossterm::event::MouseEventKind::Down(_)) {
-            trace!("handle_mouse_event {:?}", mouse_event);
-            let position = Position::new(mouse_event.column, mouse_event.row);
-            let found = self.search_active_view(position);
-            let top_level_view_idx = *self.top_level_view_idx.borrow();
-            self.active_view.borrow_mut()[top_level_view_idx] = found;
-            trace!("active_view={:?}", self.active_view.borrow());
-            return true;
+    pub fn handle_mouse_event(&self, mouse_event: MouseEvent) -> ManagerAction {
+        trace!("handle_mouse_event {:?}", mouse_event);
+
+        if !matches!(mouse_event.kind, crossterm::event::MouseEventKind::Down(_)) {
+            return ManagerAction::new(false);
         }
-        false
+
+        // on mouse down, activate the view at the mouse position
+        let position = Position::new(mouse_event.column, mouse_event.row);
+        self.activate_view_at_position(position);
+
+        // let's notify the views
+        let ma = self.handle_active_view_mouse_event(mouse_event);
+
+        ma.unwrap_or_else(|| ManagerAction::new(false))
+    }
+
+    fn activate_view_at_position(&self, position: Position) {
+        let found = self.search_active_view(position);
+        let top_level_view_idx = *self.top_level_view_idx.borrow();
+        self.active_view.borrow_mut()[top_level_view_idx] = found;
+        trace!("active_view={:?}", self.active_view.borrow());
+    }
+
+    /// Handles mouse events for the active view hierarchy.
+    ///
+    /// This method iterates through the active view stack in reverse order (leaf to root),
+    /// allowing child views to handle events before their parents.
+    ///
+    /// # Returns
+    /// - `Some(ManagerAction)` if a view in the hierarchy handled the event
+    /// - `None` if no active views exist
+    fn handle_active_view_mouse_event(&self, mouse_event: MouseEvent) -> Option<ManagerAction> {
+        debug!("handle_active_view_mouse_event {:?}", mouse_event);
+        let top_level_view_idx = *self.top_level_view_idx.borrow();
+        let active_view_vec = &self.active_view.borrow()[top_level_view_idx];
+        let views = active_view_vec.as_ref()?;
+
+        let mut called_views: HashSet<String> = HashSet::new();
+        let mut merged_action = ManagerAction::new(false);
+
+        // Iterate from leaf to root, giving child views first chance to handle events
+        for view in views.iter().rev() {
+            let action = self.process_view_mouse_event(mouse_event, view, &mut called_views);
+            merged_action.merge(&action);
+        }
+
+        Some(merged_action)
+    }
+
+    fn process_view_mouse_event(
+        &self,
+        mouse_event: MouseEvent,
+        view: &Rc<RefCell<ManagedView>>,
+        called_views: &mut HashSet<String>,
+    ) -> ManagerAction {
+        let unique_id = view.borrow().unique_id.clone();
+
+        // Skip if already processed
+        if !called_views.insert(unique_id) {
+            return ManagerAction::new(false);
+        }
+
+        self.context_view.replace(Some(view.clone()));
+
+        let mut managed_view = view.borrow_mut();
+        let area = managed_view.area;
+
+        let mut merged_action = managed_view.view.handle_mouse_event(area, mouse_event);
+        let should_broadcast = managed_view.view.broadcast_keyboard_events();
+        let children: Vec<_> = managed_view.children.to_vec();
+        drop(managed_view);
+
+        // Broadcast to children if enabled
+        if should_broadcast {
+            debug!("broadcast is active for mouse event");
+            for child in children {
+                debug!(
+                    "handling child id='{}', unique_id='{}'",
+                    child.borrow().id,
+                    child.borrow().unique_id
+                );
+                let action = self.process_view_mouse_event(mouse_event, &child, called_views);
+                merged_action.merge(&action);
+            }
+            debug!("end of broadcast for mouse event");
+        }
+
+        merged_action
     }
 
     fn search_active_view(&self, position: Position) -> Option<Vec<Rc<RefCell<ManagedView>>>> {
@@ -600,7 +678,7 @@ impl ViewManager {
                     manager_action.resize = false; // prevent the main loop to wrongly apply a resize
                 }
                 Event::Mouse(mouse_event) => {
-                    manager_action.redraw = self.handle_mouse_event(mouse_event);
+                    manager_action = self.handle_mouse_event(mouse_event);
                 }
                 Event::Key(key_event) => match key_event.code {
                     KeyCode::Esc => {
