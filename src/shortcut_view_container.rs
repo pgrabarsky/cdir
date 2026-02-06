@@ -52,6 +52,7 @@ impl ShortcutViewContainer {
                     view_state,
                     delete_fn,
                     editor_modal_view_builder,
+                    Box::new(|_| 0),
                 )
                 .with_publish_events(true),
             )

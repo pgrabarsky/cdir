@@ -499,7 +499,7 @@ impl ViewManager {
     }
 
     pub fn handle_mouse_event(&self, mouse_event: MouseEvent) -> ManagerAction {
-        trace!("handle_mouse_event {:?}", mouse_event);
+        //trace!("handle_mouse_event {:?}", mouse_event);
 
         if !matches!(mouse_event.kind, crossterm::event::MouseEventKind::Down(_)) {
             return ManagerAction::new(false);

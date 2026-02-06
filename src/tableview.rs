@@ -41,6 +41,9 @@ pub type DeleteFn<T> = Box<dyn Fn(&T)>;
 
 pub type EditorViewBuilder<T> = Box<dyn Fn(T) -> Box<ViewBuilder>>;
 
+/// A function type that searches a collection of T to find the index to focus on
+pub type FindFocusFn<T> = Box<dyn Fn(&[T]) -> usize>;
+
 pub struct TableViewState {
     pub display_with_shortcuts: bool,
 }
@@ -68,11 +71,10 @@ pub struct TableView<T: Clone> {
     view_state: Arc<Mutex<TableViewState>>,
     delete_fn: DeleteFn<T>,
     editor_modal_view_builder: Option<EditorViewBuilder<T>>,
+    find_focus_fn: FindFocusFn<T>,
 }
 
 impl<T: Clone + 'static> View for TableView<T> {
-    fn init(&mut self) { self.table_state.select_cell(Some((0, 0))); }
-
     fn resize(&mut self, area: Rect) -> Vec<(u16, Rect)> {
         debug!("resize {}", area);
 
@@ -235,6 +237,7 @@ impl<T: Clone + 'static> TableView<T> {
     /// - `config`: A reference to the configuration object containing color settings.
     /// - `view_state`: A reference-counted, mutable boolean indicating the current view state.
     /// - `delete_fn`: A boxed function that deletes an item of type T from the store
+    /// - `find_focus_fn`: A boxed function that searches a collection of T to find the index to focus on
     ///
     /// ### Returns
     /// A ViewBuilder for the TableView.
@@ -250,6 +253,7 @@ impl<T: Clone + 'static> TableView<T> {
         view_state: Arc<Mutex<TableViewState>>,
         delete_fn: DeleteFn<T>,
         editor_modal_view_builder: Option<EditorViewBuilder<T>>,
+        find_focus_fn: FindFocusFn<T>,
     ) -> ViewBuilder {
         ViewBuilder::from(Box::new(TableView {
             vm: vm.clone(),
@@ -265,6 +269,7 @@ impl<T: Clone + 'static> TableView<T> {
             view_state,
             delete_fn,
             editor_modal_view_builder,
+            find_focus_fn,
         }))
     }
 
@@ -489,7 +494,10 @@ impl<T: Clone + 'static> TableView<T> {
             .highlight_symbol(TABLE_HIGHLIGHT_SYMBOL);
 
         if self.selected_row().is_none() && self.data_model.length > 0 {
-            self.table_state.select(Some(0));
+            self.table_state.select_cell(Some((
+                (self.find_focus_fn)(self.data_model.entries.as_ref().unwrap()),
+                0,
+            )));
             debug!("No row selected: select 0")
         }
 

@@ -52,6 +52,7 @@ impl HistoryViewContainer {
                     view_state,
                     delete_fn,
                     editor_modal_view_builder,
+                    Box::new(|paths| paths.iter().position(|p| !p.smart_path).unwrap_or(0)),
                 )
                 .with_publish_events(true),
             )

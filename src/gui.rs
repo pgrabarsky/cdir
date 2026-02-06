@@ -7,7 +7,7 @@ use std::{
 use log::debug;
 use ratatui::{
     layout::Constraint,
-    style::Style,
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::Row,
 };
@@ -33,6 +33,28 @@ pub(crate) struct Gui {
     history_view_container: Option<ViewBuilder>,
     shortcut_view_container: Option<ViewBuilder>,
 }
+
+// Blends two colors with the given weight (0.0 to 1.0)
+// weight of 0.8 means 80% of color1 and 20% of color2
+// fn blend_colors(color1: Color, color2: Color, weight: f32) -> Color {
+//     let weight = weight.clamp(0.0, 1.0);
+//     let weight2 = 1.0 - weight;
+
+//     match (color1, color2) {
+//         (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) => {
+//             let r = (r1 as f32 * weight + r2 as f32 * weight2) as u8;
+//             let g = (g1 as f32 * weight + g2 as f32 * weight2) as u8;
+//             let b = (b1 as f32 * weight + b2 as f32 * weight2) as u8;
+//             Color::Rgb(r, g, b)
+//         }
+//         // For other color types, try to convert to RGB first
+//         _ => {
+//             // If we can't blend properly, just return color1
+//             // In a more complete implementation, we'd convert all color types to RGB
+//             color1
+//         }
+//     }
+// }
 
 impl Gui {
     /// Return a Line with where HOME is replaced by '~'
@@ -213,25 +235,42 @@ impl Gui {
             paths
                 .iter()
                 .map(move |path| {
-                    let path = path.clone();
+                    let path_init = path.clone();
                     // format the date
-                    let date: Line = Line::from(
-                        Span::from((config.date_formater)(path.date))
-                            .style(config.styles.date_style),
-                    );
+                    let date: Line = if !path_init.smart_path {
+                        Line::from(
+                            Span::from((config.date_formater)(path_init.date))
+                                .style(config.styles.date_style),
+                        )
+                    } else {
+                        Line::from(
+                            Span::from("                 @ ")
+                                .style(config.styles.date_style /*.bg(bgc)*/),
+                        )
+                    };
 
                     // format the path using the embedded shortcut
                     let shortened_line =
                         match table_view_state.lock().unwrap().display_with_shortcuts {
-                            true => Self::shorten_path_for_path(config.as_ref(), &path, size[1]),
+                            true => {
+                                Self::shorten_path_for_path(config.as_ref(), &path_init, size[1])
+                            }
                             false => None,
                         };
                     let path = shortened_line
                         .unwrap_or_else(|| {
-                            Self::reduce_path(path.path, size[1], config.styles.home_tilde_style)
+                            Self::reduce_path(
+                                path_init.path,
+                                size[1],
+                                config.styles.home_tilde_style,
+                            )
                         })
                         .style(config.styles.path_style);
-
+                    let path = if path_init.smart_path {
+                        path.style(Style::default().add_modifier(Modifier::ITALIC)) //.bg(bgc))
+                    } else {
+                        path
+                    };
                     vec![date, path]
                 })
                 .map(Row::new)
@@ -466,6 +505,7 @@ mod tests {
             path: "/home/user/docs/project".to_string(),
             date: 0,
             shortcut: None,
+            smart_path: false,
         };
         let result = Gui::shorten_path_for_shortcut(&config, &shortcuts, &path.path, 80);
         assert!(result.is_some());
@@ -488,6 +528,7 @@ mod tests {
             path: "/home/user/other/project".to_string(),
             date: 0,
             shortcut: None,
+            smart_path: false,
         };
         let result = Gui::shorten_path_for_shortcut(&config, &shortcuts, &path.path, 80);
         assert!(result.is_none());
@@ -540,6 +581,7 @@ mod tests {
             path: "/home/user/docs/work/project".to_string(),
             date: 0,
             shortcut: None,
+            smart_path: false,
         };
         let result = Gui::shorten_path_for_shortcut(&config, &shortcuts, &path.path, 80);
         assert!(result.is_some());
@@ -562,6 +604,7 @@ mod tests {
             path: "/home/user/docs/project".to_string(),
             date: 0,
             shortcut: None,
+            smart_path: false,
         };
         let result = Gui::shorten_path_for_shortcut(&config, &shortcuts, &path.path, 14);
         assert!(result.is_some());
@@ -612,6 +655,7 @@ mod tests {
             path: format!("{}/project", home),
             date: 0,
             shortcut: None,
+            smart_path: false,
         };
         let line = Gui::reduce_path(path.path, 80, Style::new());
         let line_str = line.to_string();
@@ -629,6 +673,7 @@ mod tests {
             path: home.to_string(),
             date: 0,
             shortcut: None,
+            smart_path: false,
         };
         let line = Gui::reduce_path(path.path, 80, Style::new());
         let line_str = line.to_string();
@@ -645,6 +690,7 @@ mod tests {
             path: "/other/path/project".to_string(),
             date: 0,
             shortcut: None,
+            smart_path: false,
         };
         let line = Gui::reduce_path(path.path, 80, Style::new());
         let line_str = line.to_string();
@@ -662,6 +708,7 @@ mod tests {
             path: format!("{}/project", home),
             date: 0,
             shortcut: None,
+            smart_path: false,
         };
 
         let line = Gui::reduce_path(path.path.clone(), 9, Style::new());
@@ -700,6 +747,7 @@ mod tests {
             path: home.to_string(),
             date: 0,
             shortcut: None,
+            smart_path: false,
         };
 
         let line = Gui::reduce_path(path.path.clone(), 2, Style::new());
@@ -722,6 +770,7 @@ mod tests {
             path: "/other/path/project".to_string(),
             date: 0,
             shortcut: None,
+            smart_path: false,
         };
 
         let line = Gui::reduce_path(path.path.clone(), 19, Style::new());

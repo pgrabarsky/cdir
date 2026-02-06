@@ -5,7 +5,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use log::{debug, error, info, trace};
+use log::{debug, error, info, trace, warn};
 use nucleo_matcher::{
     Matcher, Utf32Str,
     pattern::{CaseMatching, Normalization, Pattern},
@@ -16,7 +16,7 @@ use crate::config::Config;
 
 // Update this when the database schema changes with the max value value of the sql
 // files in ../dbschema (e.g. if 1.sql is the latest, this should be 1)
-const CURRENT_SCHEMA_VERSION: i64 = 2;
+const CURRENT_SCHEMA_VERSION: i64 = 3;
 
 /// Represents a path entry in the database
 /// id: auto increment primary key
@@ -29,6 +29,7 @@ pub(crate) struct Path {
     pub(crate) date: i64,
     pub(crate) path: String,
     pub(crate) shortcut: Option<Shortcut>,
+    pub(crate) smart_path: bool,
 }
 
 impl Path {
@@ -38,6 +39,7 @@ impl Path {
             path,
             date,
             shortcut: None,
+            smart_path: false,
         };
         path.assign_shortcut(shortcuts);
         path
@@ -65,7 +67,7 @@ impl Path {
         if sub_path.len() == base_path.len() {
             return true;
         }
-        return sub_path.as_bytes()[base_path.len()] == std::path::MAIN_SEPARATOR as u8;
+        sub_path.as_bytes()[base_path.len()] == std::path::MAIN_SEPARATOR as u8
     }
 }
 
@@ -88,6 +90,72 @@ impl fmt::Display for Shortcut {
             "Shortcut {{ id: {}, name: '{}', path: '{}', description: {:?} }}",
             self.id, self.name, self.path, self.description
         )
+    }
+}
+
+struct SmartRanker {
+    depth: usize,
+    context_values_count: usize,
+    seen_paths: std::collections::HashMap<String, u64>,
+}
+
+impl SmartRanker {
+    fn new(depth: usize, context_values_count: usize) -> SmartRanker {
+        debug!(
+            "Creating SmartRanker with depth={} context_values_count={}",
+            depth, context_values_count
+        );
+        SmartRanker {
+            depth,
+            context_values_count,
+            seen_paths: std::collections::HashMap::new(),
+        }
+    }
+
+    fn add_path(&mut self, depth: usize, path: String, distance: usize) {
+        debug!(
+            "SmartRanker add_path depth={} path='{}' distance={}",
+            depth, path, distance
+        );
+        if distance >= self.context_values_count {
+            warn!(
+                "SmartRanker has been given a distance of {} which is >= context_values_count of {}, skipping",
+                distance, self.context_values_count
+            );
+            return;
+        }
+        let reverse_idx: u32 = self.context_values_count as u32 - 1 - distance as u32;
+        let score = 2u64.pow(reverse_idx);
+        // adjust the score with the depth:
+        // 2u64.pow((self.depth - depth - 1) as u32) is too much, let's have the depth score 4 time lower than the distance score
+        // so that we privilegiate the closest paths, and only use the depth as a tie breaker
+        let score = (score << 2) + (self.depth - depth - 1) as u64;
+        trace!(
+            "SmartRanker adding path: {:?} distance={} score={}",
+            path, distance, score
+        );
+        if let Some(existing_path_score) = self.seen_paths.get(&path) {
+            let new_score = score + existing_path_score;
+            trace!(
+                "SmartRanker updating path: {:?} existing_score={} new_score={}",
+                path, existing_path_score, new_score
+            );
+            self.seen_paths.insert(path.clone(), new_score);
+        } else {
+            self.seen_paths.insert(path.clone(), score);
+        }
+    }
+
+    fn collect_rows(&self) -> Vec<String> {
+        let rows = self.seen_paths.iter().map(|(k, v)| (k.clone(), *v));
+        let mut rows: Vec<(String, u64)> = rows.collect();
+        // let mut rows: Vec<(u64, String)> = self.seen_paths.clone().into_iter().collect();
+        // sort by score descending
+        rows.sort_by(|pws1, pws2| pws2.1.cmp(&pws1.1));
+        rows.into_iter()
+            .take(self.context_values_count)
+            .map(|pws| pws.0)
+            .collect::<Vec<String>>()
     }
 }
 
@@ -193,6 +261,7 @@ impl Store {
         let u = [
             include_str!("../dbschema/1.sql"),
             include_str!("../dbschema/2.sql"),
+            include_str!("../dbschema/3.sql"),
             // add other upgrade scripts here
         ];
 
@@ -286,17 +355,41 @@ impl Store {
                 return Err(err);
             }
         }
+        let result1;
+        let result2;
         {
+            // add into paths
             let mut stmt = self
                 .db_conn
                 .prepare("INSERT INTO paths (path, date) VALUES ((?1),(?2))")?;
-            stmt.execute([path, &format!("{}", epoc)])
+            result1 = stmt
+                .execute([path, &format!("{}", epoc)])
                 .map_err(|e| {
                     error!("Failed to insert path '{}' time' {}: {}", path, epoc, e);
                     e
                 })
-                .map(|_l| ())
+                .map(|_l| ());
+            let _ = result1
+                .as_ref()
+                .map_err(|e| error!("Error inserting into paths: {}", e));
         }
+        {
+            // add into paths_history
+            let mut stmt = self
+                .db_conn
+                .prepare("INSERT INTO paths_history (path, date) VALUES ((?1),(?2))")?;
+            result2 = stmt
+                .execute([path, &format!("{}", epoc)])
+                .map_err(|e| {
+                    error!("Failed to insert path '{}' time' {}: {}", path, epoc, e);
+                    e
+                })
+                .map(|_l| ());
+            let _ = result2
+                .as_ref()
+                .map_err(|e| error!("Error inserting into paths_history: {}", e));
+        }
+        result1.and(result2)
     }
 
     /// Deletes a path from the database by its ID.
@@ -375,7 +468,7 @@ impl Store {
 
         trace!("Scoring path '{}' initial score={:?}", path.path, max_score);
 
-        if self.config.path_search_include_shortcuts == false {
+        if !self.config.path_search_include_shortcuts {
             return max_score;
         }
 
@@ -542,6 +635,38 @@ impl Store {
             "list_path_exact pos={} len={} like_text={}",
             pos, len, like_text
         );
+        let mut pos = pos;
+        let mut len = len;
+
+        let mut smart_rows = vec![];
+        if self.config.smart_suggestions_active && like_text.is_empty() {
+            // get current working directory
+            let cwd = std::env::current_dir().unwrap();
+            smart_rows = self
+                .list_path_history_smart_suggestions(
+                    cwd.to_str().unwrap(),
+                    self.config.smart_suggestions_depth,
+                    self.config.smart_suggestions_count,
+                    shortcuts,
+                )
+                .unwrap();
+            // reverse the list in order to have the best suggestionstion just on top of the first into the history
+            smart_rows.reverse();
+
+            if pos < smart_rows.len() {
+                // we keep smart_rows.len() - pos values
+                smart_rows = smart_rows.into_iter().skip(pos).collect();
+                len -= smart_rows.len();
+                pos = 0;
+            } else {
+                // we skip all smart rows
+                pos -= smart_rows.len();
+                smart_rows = vec![];
+            }
+        }
+
+        debug!("smart_rows len={}", smart_rows.len());
+
         let (sql, params) =
             self.build_list_path_exact_sql_statement(pos, len, like_text, shortcuts);
 
@@ -568,6 +693,191 @@ impl Store {
         for path in rows {
             paths.push(path?);
         }
+        let mut final_rows = smart_rows;
+        final_rows.append(&mut paths);
+
+        debug!("final_row len={}", final_rows.len());
+
+        Ok(final_rows)
+    }
+
+    /// Lists path history from the paths_history table with pagination and optional filtering.
+    /// The results are ordered by date (descending) and ID (descending).
+    /// If `like_text` is provided, only paths containing the text are returned.
+    /// This function only performs exact matching (no fuzzy search).
+    ///
+    /// ### Parameters
+    /// pos: the starting position (offset) for pagination
+    /// len: the number of paths to return
+    /// like_text: optional text to filter paths (if empty, no filtering is applied)
+    ///
+    /// ### Returns
+    /// A vector of Path entries if the operation was successful, otherwise an error.
+    #[allow(dead_code)]
+    pub(crate) fn list_path_history(
+        &self,
+        pos: usize,
+        len: usize,
+        like_text: &str,
+    ) -> Result<Vec<Path>, rusqlite::Error> {
+        debug!(
+            "list_path_history pos={} len={} like_text={}",
+            pos, len, like_text
+        );
+        // Retrieve all shortcuts to associate with paths
+        let shortcuts = self.list_all_shortcuts().unwrap_or_default();
+        self.list_path_history_exact(pos, len, like_text, &shortcuts)
+    }
+
+    fn list_path_history_exact(
+        &self,
+        pos: usize,
+        len: usize,
+        like_text: &str,
+        shortcuts: &[Shortcut],
+    ) -> Result<Vec<Path>, rusqlite::Error> {
+        debug!(
+            "list_path_history_exact pos={} len={} like_text={}",
+            pos, len, like_text
+        );
+        let mut sql = String::from("SELECT id, path, date FROM paths_history");
+        let mut params: Vec<String> = vec![];
+
+        if !like_text.is_empty() {
+            sql.push_str(" WHERE path LIKE '%' || (?1) || '%'");
+            params.push(like_text.to_string());
+
+            let limit_idx = params.len() + 1;
+            let offset_idx = params.len() + 2;
+            sql.push_str(&format!(
+                " ORDER BY date desc, id desc LIMIT (?{}) OFFSET (?{})",
+                limit_idx, offset_idx
+            ));
+        } else {
+            sql.push_str(" ORDER BY date desc, id desc LIMIT (?1) OFFSET (?2)");
+        }
+        params.push(format!("{}", len));
+        params.push(format!("{}", pos));
+
+        debug!("list_path_history_exact sql={} params={:?}", sql, params);
+
+        let mut stmt = match self.db_conn.prepare(sql.as_str()) {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                error!("list_path_history failed in prepare {}: {}", sql, e);
+                return Err(e);
+            }
+        };
+
+        let rows = match stmt.query_map(rusqlite::params_from_iter(params), |row| {
+            let path_str: String = row.get(1)?;
+            Ok(Path::new(row.get(0)?, path_str, row.get(2)?, shortcuts))
+        }) {
+            Ok(rows) => rows,
+            Err(e) => {
+                error!("list_path_history failed in query_map: {}", e);
+                return Err(e);
+            }
+        };
+
+        let mut paths = Vec::new();
+        for path in rows {
+            paths.push(path?);
+        }
+        Ok(paths)
+    }
+
+    pub(crate) fn list_path_history_smart_suggestions(
+        &self,
+        match_path: &str,
+        search_depth: usize,
+        suggestions_values_count: usize,
+        shortcuts: &[Shortcut],
+    ) -> Result<Vec<Path>, rusqlite::Error> {
+        debug!(
+            "entering list_path_history_smart_suggestions match_path='{}' search_depth={} suggestions_values_count={}",
+            match_path, search_depth, suggestions_values_count
+        );
+        if match_path.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut stmt = match self.db_conn.prepare("SELECT id, path, date FROM paths_history WHERE path == (?1) ORDER BY date desc, id desc LIMIT (?2)") {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                error!("list_path_history failed in prepare: {}", e);
+                return Err(e);
+            }
+        };
+        let rows = match stmt.query_map(
+            rusqlite::params_from_iter([match_path, &search_depth.to_string()]),
+            |row| {
+                let path_str: String = row.get(1)?;
+                Ok(Path::new(row.get(0)?, path_str, row.get(2)?, shortcuts))
+            },
+        ) {
+            Ok(rows) => rows,
+            Err(e) => {
+                error!("list_path_history failed in query_map: {}", e);
+                return Err(e);
+            }
+        };
+
+        let rows: Result<Vec<Path>> = rows.collect();
+        let rows = rows.unwrap();
+
+        let mut stmt = match self.db_conn.prepare("SELECT DISTINCT path FROM paths_history WHERE id > (?1) and path != (?2) ORDER BY date asc, id asc LIMIT (?3)") {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                error!("list_path_history failed in prepare: {}", e);
+                return Err(e);
+            }
+        };
+
+        let mut sm = SmartRanker::new(search_depth, suggestions_values_count);
+
+        for (set_idx, row) in rows.iter().enumerate() {
+            debug!("found path: {:?}", row);
+
+            // we skip the home directory that has no added value for smart suggestions
+            let skip_directory = std::env::home_dir()
+                .and_then(|p| p.to_str().map(|s| s.to_string()))
+                .unwrap_or_default();
+            let prev_rows = match stmt.query_map(
+                rusqlite::params_from_iter([
+                    &row.id.to_string(),
+                    &skip_directory,
+                    &suggestions_values_count.to_string(),
+                ]),
+                |row| {
+                    let path_str: String = row.get(0)?;
+                    Ok(path_str)
+                },
+            ) {
+                Ok(rows) => rows,
+                Err(e) => {
+                    error!("list_path_history failed in query_map: {}", e);
+                    return Err(e);
+                }
+            };
+            for (idx, prev_row) in prev_rows.enumerate() {
+                let prev_row = prev_row?;
+                if prev_row == match_path {
+                    trace!("skipping match_path: {:?}", prev_row);
+                    break;
+                }
+                debug!("adding previous path: {:?}", prev_row);
+                sm.add_path(set_idx, prev_row, idx);
+            }
+        }
+        let paths = sm
+            .collect_rows()
+            .iter()
+            .map(|p| {
+                let mut path = Path::new(0, p.clone(), 0, shortcuts);
+                path.smart_path = true;
+                path
+            })
+            .collect();
         Ok(paths)
     }
 
@@ -932,6 +1242,9 @@ impl Clone for Store {
 
 #[cfg(test)]
 mod tests {
+    use log::LevelFilter;
+    use log4rs_test_utils::test_logging::init_logging_once_for;
+
     use super::*;
 
     #[test]
@@ -942,6 +1255,7 @@ mod tests {
             path: "/home/user/documents".to_string(),
             date: 0,
             shortcut: None,
+            smart_path: false,
         };
         let shortcuts = [];
         path.assign_shortcut(&shortcuts);
@@ -953,6 +1267,7 @@ mod tests {
             path: "/home/user/documents".to_string(),
             date: 0,
             shortcut: None,
+            smart_path: false,
         };
         let shortcuts = vec![Shortcut {
             id: 1,
@@ -971,6 +1286,7 @@ mod tests {
             path: "/var/log/app".to_string(),
             date: 0,
             shortcut: None,
+            smart_path: false,
         };
         let shortcuts = vec![Shortcut {
             id: 1,
@@ -987,6 +1303,7 @@ mod tests {
             path: "/home/user/documents/projects/rust".to_string(),
             date: 0,
             shortcut: None,
+            smart_path: false,
         };
         let shortcuts = vec![
             Shortcut {
@@ -1027,6 +1344,7 @@ mod tests {
                 path: "/home/user/documents/projects".to_string(),
                 description: None,
             }),
+            smart_path: false,
         };
         let shortcuts = vec![Shortcut {
             id: 1,
@@ -1048,6 +1366,7 @@ mod tests {
                 path: "/home".to_string(),
                 description: None,
             }),
+            smart_path: false,
         };
         let shortcuts = vec![Shortcut {
             id: 2,
@@ -1065,6 +1384,7 @@ mod tests {
             path: "/home/abcd".to_string(),
             date: 0,
             shortcut: None,
+            smart_path: false,
         };
         let shortcuts = vec![Shortcut {
             id: 1,
@@ -1083,11 +1403,19 @@ mod tests {
         let paths = store.list_paths(0, 10, "", false).unwrap();
         assert_eq!(paths.len(), 0);
 
+        // Verify history table is empty initially
+        let history = store.list_path_history(0, 10, "").unwrap();
+        assert_eq!(history.len(), 0);
+
         // A single entry
         store.add_path("test_path1").unwrap();
         let paths = store.list_paths(0, 10, "", false).unwrap();
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0].path, "test_path1");
+        // Verify history table also contains the entry
+        let history = store.list_path_history(0, 10, "").unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].path, "test_path1");
 
         // Two entries
         store.add_path("test_path2").unwrap();
@@ -1095,6 +1423,11 @@ mod tests {
         assert_eq!(paths.len(), 2);
         assert_eq!(paths[0].path, "test_path2");
         assert_eq!(paths[1].path, "test_path1");
+        // Verify history table also contains both entries
+        let history = store.list_path_history(0, 10, "").unwrap();
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].path, "test_path2");
+        assert_eq!(history[1].path, "test_path1");
 
         // A third entry with a specified time
         let now = SystemTime::now()
@@ -1108,13 +1441,23 @@ mod tests {
         assert_eq!(paths[0].date, now as i64 + 7);
         assert_eq!(paths[1].path, "test_path2");
         assert_eq!(paths[2].path, "test_path1");
+        // Verify history table also contains all three entries with correct timestamps
+        let history = store.list_path_history(0, 10, "").unwrap();
+        assert_eq!(history.len(), 3);
+        assert_eq!(history[0].path, "test_path3");
+        assert_eq!(history[0].date, now as i64 + 7);
+        assert_eq!(history[1].path, "test_path2");
+        assert_eq!(history[2].path, "test_path1");
 
-        // Delete the one in the middle
+        // Delete the one in the middle (deletes from paths but not from history)
         store.delete_path_by_id(paths[1].id).unwrap();
         let paths = store.list_paths(0, 10, "", false).unwrap();
         assert_eq!(paths.len(), 2);
         assert_eq!(paths[0].path, "test_path3");
         assert_eq!(paths[1].path, "test_path1");
+        // Verify history table still contains all entries (delete doesn't remove history)
+        let history = store.list_path_history(0, 10, "").unwrap();
+        assert_eq!(history.len(), 3);
 
         // Perform a search
         let paths = store.list_paths(0, 10, "3", false).unwrap();
@@ -1545,7 +1888,7 @@ mod tests {
 
         // Fuzzy match "ome" should find paths containing "ome"
         let paths = store.list_paths(0, 10, "ome", true).unwrap();
-        assert!(paths.len() >= 1);
+        assert!(!paths.is_empty());
         assert!(paths.iter().any(|p| p.path.contains("home")));
     }
 
@@ -1564,7 +1907,7 @@ mod tests {
 
         // Fuzzy match uppercase "USER" should find both paths
         let paths = store.list_paths(0, 10, "USER", true).unwrap();
-        assert!(paths.len() >= 1);
+        assert!(!paths.is_empty());
     }
 
     #[test]
@@ -1591,7 +1934,7 @@ mod tests {
 
         // Fuzzy match "rust" should find relevant paths
         let paths = store.list_paths(0, 10, "rust", true).unwrap();
-        assert!(paths.len() >= 1);
+        assert!(!paths.is_empty());
         assert!(paths.iter().any(|p| p.path.contains("rust")));
     }
 
@@ -1615,7 +1958,7 @@ mod tests {
 
         // Get remaining
         let paths = store.list_paths(4, 2, "home", true).unwrap();
-        assert!(paths.len() > 0);
+        assert!(!paths.is_empty());
     }
 
     #[test]
@@ -1647,12 +1990,12 @@ mod tests {
 
         // Fuzzy match "mydoc" should find paths (matches both shortcut name and path)
         let paths = store.list_paths(0, 10, "my doc", true).unwrap();
-        assert!(paths.len() >= 1);
+        assert!(!paths.is_empty());
         // Paths with the "docs" shortcut should be included
         assert!(
             paths
                 .iter()
-                .any(|p| p.shortcut.as_ref().map_or(false, |s| s.name == "mydocs"))
+                .any(|p| p.shortcut.as_ref().is_some_and(|s| s.name == "mydocs"))
         );
     }
 
@@ -1687,14 +2030,9 @@ mod tests {
 
         // Fuzzy match "doc" - should return results
         let paths = store.list_paths(0, 10, "doc", true).unwrap();
-        assert!(paths.len() >= 1);
+        assert!(!paths.is_empty());
         // All results should contain "doc" in some form
-        assert!(paths.iter().all(|p| {
-            p.path.to_lowercase().contains("doc")
-                || p.shortcut
-                    .as_ref()
-                    .map_or(false, |s| s.name.to_lowercase().contains("doc"))
-        }));
+        assert!(paths.iter().all(|p| p.path.contains("doc")));
     }
 
     #[test]
@@ -1777,7 +2115,7 @@ mod tests {
 
         // Fuzzy match "1" should find project1 and possibly error404
         let paths = store.list_paths(0, 10, "1", true).unwrap();
-        assert!(paths.len() >= 1);
+        assert!(!paths.is_empty());
         assert!(paths.iter().any(|p| p.path.contains("1")));
     }
 
@@ -1827,7 +2165,7 @@ mod tests {
 
         // Fuzzy match "cde" - should find both paths (consecutive in first, separated in second)
         let paths = store.list_paths(0, 10, "cde", true).unwrap();
-        assert!(paths.len() >= 1);
+        assert!(!paths.is_empty());
     }
 
     #[test]
@@ -1894,8 +2232,10 @@ mod tests {
     #[test]
     fn test_path_search_include_shortcuts_disabled() {
         // Create a custom config with path_search_include_shortcuts disabled
-        let mut config = Config::default();
-        config.path_search_include_shortcuts = false;
+        let config = Config {
+            path_search_include_shortcuts: false,
+            ..Default::default()
+        };
 
         let store = Store {
             db_conn: Rc::from(Connection::open_in_memory().unwrap()),
@@ -1941,8 +2281,10 @@ mod tests {
     #[test]
     fn test_path_search_include_shortcuts_filter_by_description_disabled() {
         // Create a custom config with path_search_include_shortcuts disabled
-        let mut config = Config::default();
-        config.path_search_include_shortcuts = false;
+        let config = Config {
+            path_search_include_shortcuts: false,
+            ..Default::default()
+        };
 
         let store = Store {
             db_conn: Rc::from(Connection::open_in_memory().unwrap()),
@@ -1968,8 +2310,10 @@ mod tests {
     #[test]
     fn test_path_search_include_shortcuts_direct_path_match_always_works() {
         // Create a custom config with path_search_include_shortcuts disabled
-        let mut config = Config::default();
-        config.path_search_include_shortcuts = false;
+        let config = Config {
+            path_search_include_shortcuts: false,
+            ..Default::default()
+        };
 
         let store = Store {
             db_conn: Rc::from(Connection::open_in_memory().unwrap()),
@@ -2015,8 +2359,10 @@ mod tests {
     #[test]
     fn test_list_path_fuzzy_with_shortcut_scoring_disabled() {
         // Create a custom config with path_search_include_shortcuts disabled
-        let mut config = Config::default();
-        config.path_search_include_shortcuts = false;
+        let config = Config {
+            path_search_include_shortcuts: false,
+            ..Default::default()
+        };
 
         let store = Store {
             db_conn: Rc::from(Connection::open_in_memory().unwrap()),
@@ -2038,5 +2384,877 @@ mod tests {
         // (the search term doesn't appear in any actual path)
         let paths = store.list_paths(0, 10, "uniqueshortcut", true).unwrap();
         assert_eq!(paths.len(), 0);
+    }
+
+    #[test]
+    fn test_list_path_history_empty_database() {
+        let store = Store::setup_test_store();
+        let history = store.list_path_history(0, 10, "").unwrap();
+        assert_eq!(history.len(), 0);
+    }
+
+    #[test]
+    fn test_list_path_history_no_filter() {
+        let store = Store::setup_test_store();
+
+        // Add some paths
+        store.add_path("/home/user/documents").unwrap();
+        store.add_path("/var/log/app").unwrap();
+        store.add_path("/usr/local/bin").unwrap();
+
+        // List all history without filter
+        let history = store.list_path_history(0, 10, "").unwrap();
+        assert_eq!(history.len(), 3);
+        // History should be ordered by date desc, id desc (most recent first)
+        assert_eq!(history[0].path, "/usr/local/bin");
+        assert_eq!(history[1].path, "/var/log/app");
+        assert_eq!(history[2].path, "/home/user/documents");
+    }
+
+    #[test]
+    fn test_list_path_history_with_pagination() {
+        let store = Store::setup_test_store();
+
+        // Add 5 paths
+        store.add_path("/path1").unwrap();
+        store.add_path("/path2").unwrap();
+        store.add_path("/path3").unwrap();
+        store.add_path("/path4").unwrap();
+        store.add_path("/path5").unwrap();
+
+        // Get first 2 paths from history
+        let history = store.list_path_history(0, 2, "").unwrap();
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].path, "/path5");
+        assert_eq!(history[1].path, "/path4");
+
+        // Get next 2 paths (offset 2)
+        let history = store.list_path_history(2, 2, "").unwrap();
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].path, "/path3");
+        assert_eq!(history[1].path, "/path2");
+
+        // Get remaining paths (offset 4)
+        let history = store.list_path_history(4, 2, "").unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].path, "/path1");
+
+        // Get with offset beyond data
+        let history = store.list_path_history(10, 10, "").unwrap();
+        assert_eq!(history.len(), 0);
+    }
+
+    #[test]
+    fn test_list_path_history_filter_by_text() {
+        let store = Store::setup_test_store();
+
+        // Add paths with different patterns
+        store.add_path("/home/user/documents").unwrap();
+        store.add_path("/home/user/downloads").unwrap();
+        store.add_path("/var/log/documents").unwrap();
+        store.add_path("/var/log/app").unwrap();
+
+        // Filter by text "documents"
+        let history = store.list_path_history(0, 10, "documents").unwrap();
+        assert_eq!(history.len(), 2);
+        assert!(history.iter().all(|p| p.path.contains("documents")));
+
+        // Filter by text "home"
+        let history = store.list_path_history(0, 10, "home").unwrap();
+        assert_eq!(history.len(), 2);
+        assert!(history.iter().all(|p| p.path.contains("home")));
+
+        // Filter by text that doesn't match
+        let history = store.list_path_history(0, 10, "nonexistent").unwrap();
+        assert_eq!(history.len(), 0);
+    }
+
+    #[test]
+    fn test_list_path_history_case_insensitive() {
+        let store = Store::setup_test_store();
+
+        // Add paths
+        store.add_path("/Home/User/Documents").unwrap();
+        store.add_path("/home/user/downloads").unwrap();
+
+        // Filter by lowercase "home" should match "/Home/User/Documents"
+        let history = store.list_path_history(0, 10, "home").unwrap();
+        assert_eq!(history.len(), 2);
+
+        // Filter by uppercase "HOME" should also work (case-insensitive)
+        let history = store.list_path_history(0, 10, "HOME").unwrap();
+        assert_eq!(history.len(), 2);
+    }
+
+    #[test]
+    fn test_list_path_history_special_characters() {
+        let store = Store::setup_test_store();
+
+        // Add paths with special characters
+        store.add_path("/home/user/documents%20space").unwrap();
+        store.add_path("/home/user/file's.txt").unwrap();
+        store.add_path("/home/user/[brackets]").unwrap();
+
+        // Filter by path with special character
+        let history = store.list_path_history(0, 10, "space").unwrap();
+        assert_eq!(history.len(), 1);
+        assert!(history[0].path.contains("space"));
+
+        // List all
+        let history = store.list_path_history(0, 10, "").unwrap();
+        assert_eq!(history.len(), 3);
+    }
+
+    #[test]
+    fn test_list_path_history_pagination_with_filter() {
+        let store = Store::setup_test_store();
+
+        // Add paths
+        store.add_path("/home/user1").unwrap();
+        store.add_path("/home/user2").unwrap();
+        store.add_path("/home/user3").unwrap();
+        store.add_path("/var/home_backup").unwrap();
+
+        // Filter by "home" with pagination
+        let history = store.list_path_history(0, 2, "home").unwrap();
+        assert_eq!(history.len(), 2);
+
+        let history = store.list_path_history(2, 2, "home").unwrap();
+        assert_eq!(history.len(), 2);
+
+        let history = store.list_path_history(4, 2, "home").unwrap();
+        assert_eq!(history.len(), 0);
+    }
+
+    #[test]
+    fn test_list_path_history_persists_after_delete() {
+        let store = Store::setup_test_store();
+
+        // Add some paths
+        store.add_path("test_path1").unwrap();
+        store.add_path("test_path2").unwrap();
+        store.add_path("test_path3").unwrap();
+
+        // Verify history has all 3 entries
+        let history = store.list_path_history(0, 10, "").unwrap();
+        assert_eq!(history.len(), 3);
+
+        // Delete from paths table
+        let paths = store.list_paths(0, 10, "", false).unwrap();
+        store.delete_path_by_id(paths[0].id).unwrap();
+
+        // Verify history still has all 3 entries (delete doesn't affect history)
+        let history = store.list_path_history(0, 10, "").unwrap();
+        assert_eq!(history.len(), 3);
+
+        // Verify paths table only has 2 entries
+        let paths = store.list_paths(0, 10, "", false).unwrap();
+        assert_eq!(paths.len(), 2);
+    }
+
+    #[test]
+    fn test_list_path_history_with_duplicate_paths() {
+        let store = Store::setup_test_store();
+
+        // Add the same path multiple times
+        store.add_path("/home/user/documents").unwrap();
+        store.add_path("/var/log/app").unwrap();
+        store.add_path("/home/user/documents").unwrap();
+
+        // Verify paths table has only 2 unique paths
+        let paths = store.list_paths(0, 10, "", false).unwrap();
+        assert_eq!(paths.len(), 2);
+
+        // Verify history has 3 entries (includes the duplicate addition)
+        let history = store.list_path_history(0, 10, "").unwrap();
+        assert_eq!(history.len(), 3);
+    }
+
+    #[test]
+    fn test_list_path_history_timestamp_preservation() {
+        let store = Store::setup_test_store();
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // Add paths with specific timestamps
+        store.add_path_with_time("path1", now).unwrap();
+        store.add_path_with_time("path2", now + 100).unwrap();
+        store.add_path_with_time("path3", now + 50).unwrap();
+
+        // Verify history preserves timestamps
+        let history = store.list_path_history(0, 10, "").unwrap();
+        assert_eq!(history.len(), 3);
+        assert_eq!(history[0].path, "path2");
+        assert_eq!(history[0].date, now as i64 + 100);
+        assert_eq!(history[1].path, "path3");
+        assert_eq!(history[1].date, now as i64 + 50);
+        assert_eq!(history[2].path, "path1");
+        assert_eq!(history[2].date, now as i64);
+    }
+
+    #[test]
+    fn test_list_path_history_empty_filter_text() {
+        let store = Store::setup_test_store();
+
+        // Add multiple paths
+        store.add_path("/home/user/documents").unwrap();
+        store.add_path("/var/log/app").unwrap();
+        store.add_path("/usr/bin/executable").unwrap();
+
+        // Filter with empty string should return all paths
+        let history = store.list_path_history(0, 10, "").unwrap();
+        assert_eq!(history.len(), 3);
+    }
+
+    #[test]
+    fn test_list_path_history_single_path() {
+        let store = Store::setup_test_store();
+
+        // Add a single path
+        store.add_path("/home/user/test").unwrap();
+
+        // Verify history contains the path
+        let history = store.list_path_history(0, 10, "").unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].path, "/home/user/test");
+
+        // Filter should work
+        let history = store.list_path_history(0, 10, "user").unwrap();
+        assert_eq!(history.len(), 1);
+
+        // Non-matching filter should return empty
+        let history = store.list_path_history(0, 10, "nonexistent").unwrap();
+        assert_eq!(history.len(), 0);
+    }
+
+    #[test]
+    fn test_list_path_history_partial_path_match() {
+        let store = Store::setup_test_store();
+
+        // Add paths
+        store.add_path("/home/user/documents/file.txt").unwrap();
+        store.add_path("/home/user/downloads/file.txt").unwrap();
+        store.add_path("/var/log/documents.log").unwrap();
+
+        // Filter by "documents" should find all containing "documents"
+        let history = store.list_path_history(0, 10, "documents").unwrap();
+        assert_eq!(history.len(), 2);
+        assert!(history.iter().all(|p| p.path.contains("documents")));
+
+        // Filter by "file.txt" should find both
+        let history = store.list_path_history(0, 10, "file.txt").unwrap();
+        assert_eq!(history.len(), 2);
+    }
+
+    #[test]
+    fn test_list_path_history_with_shortcuts() {
+        let store = Store::setup_test_store();
+
+        // Add shortcuts
+        store
+            .add_shortcut("mydocs", "/home/user/documents", None)
+            .unwrap();
+
+        // Add paths
+        store.add_path("/home/user/documents/file1.txt").unwrap();
+        store.add_path("/home/user/documents/file2.txt").unwrap();
+
+        // History entries should have shortcuts assigned
+        let history = store.list_path_history(0, 10, "").unwrap();
+        assert_eq!(history.len(), 2);
+        for entry in &history {
+            assert!(entry.shortcut.is_some());
+            assert_eq!(entry.shortcut.as_ref().unwrap().name, "mydocs");
+        }
+    }
+
+    #[test]
+    fn test_list_path_history_ordering() {
+        let store = Store::setup_test_store();
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // Add paths in random order with timestamps
+        store.add_path_with_time("first", now).unwrap();
+        store.add_path_with_time("third", now + 200).unwrap();
+        store.add_path_with_time("second", now + 100).unwrap();
+
+        // Verify history is ordered by date descending (most recent first)
+        let history = store.list_path_history(0, 10, "").unwrap();
+        assert_eq!(history.len(), 3);
+        assert_eq!(history[0].path, "third");
+        assert_eq!(history[1].path, "second");
+        assert_eq!(history[2].path, "first");
+    }
+
+    #[test]
+    fn test_list_path_history_limit_zero() {
+        let store = Store::setup_test_store();
+
+        // Add paths
+        store.add_path("/home/user/documents").unwrap();
+        store.add_path("/home/user/downloads").unwrap();
+
+        // Query with limit 0 - should return nothing
+        let history = store.list_path_history(0, 0, "").unwrap();
+        assert_eq!(history.len(), 0);
+    }
+
+    #[test]
+    fn test_list_path_history_offset_beyond_results() {
+        let store = Store::setup_test_store();
+
+        // Add paths
+        store.add_path("/home/user/documents").unwrap();
+        store.add_path("/home/user/downloads").unwrap();
+
+        // Query with offset beyond results
+        let history = store.list_path_history(100, 10, "").unwrap();
+        assert_eq!(history.len(), 0);
+    }
+
+    #[test]
+    fn test_smart_ranker_empty() {
+        let sm = SmartRanker::new(0, 0);
+        assert_eq!(0, sm.collect_rows().len());
+
+        let sm = SmartRanker::new(0, 7);
+        assert_eq!(0, sm.collect_rows().len());
+    }
+
+    #[test]
+    fn test_smart_ranker_one_entry() {
+        let mut sm = SmartRanker::new(1, 0);
+        sm.add_path(0, "/a".to_string(), 0);
+        assert_eq!(0, sm.collect_rows().len());
+
+        let mut sm = SmartRanker::new(1, 7);
+        sm.add_path(0, "/a".to_string(), 0);
+        assert_eq!(1, sm.collect_rows().len());
+    }
+
+    #[test]
+    fn test_smart_ranker_two_entries() {
+        init_logging_once_for(
+            vec!["cdir::store"],
+            LevelFilter::Trace,
+            "{h({d(%H:%M:%S%.3f)} {({l}):5.5} {f}:{L} — {m}{n})}",
+        );
+
+        // 0 window
+        debug!("0 window");
+        let mut sm = SmartRanker::new(1, 0);
+        sm.add_path(0, "/a".to_string(), 0);
+        sm.add_path(0, "/b".to_string(), 1);
+        assert_eq!(0, sm.collect_rows().len());
+
+        // 1 window
+        debug!("1 window");
+        let mut sm = SmartRanker::new(1, 1);
+        sm.add_path(0, "/a".to_string(), 0);
+        sm.add_path(0, "/b".to_string(), 1);
+        let rows = sm.collect_rows();
+        assert_eq!(1, rows.len());
+        assert_eq!("/a", rows[0]);
+
+        // 1 window, reverse order
+        debug!("1 window reverse order");
+        let mut sm = SmartRanker::new(1, 1);
+        sm.add_path(0, "/b".to_string(), 1);
+        sm.add_path(0, "/a".to_string(), 0);
+        let rows = sm.collect_rows();
+        assert_eq!(1, rows.len());
+        assert_eq!("/a", rows[0]);
+
+        // 2 window
+        debug!("2 window");
+        let mut sm = SmartRanker::new(2, 2);
+        sm.add_path(0, "/a".to_string(), 0);
+        sm.add_path(0, "/b".to_string(), 1);
+        let rows = sm.collect_rows();
+        assert_eq!(2, rows.len());
+        assert_eq!("/a", rows[0]);
+        assert_eq!("/b", rows[1]);
+
+        // 2 window, reverse order
+        debug!("2 window reverse order");
+        let mut sm = SmartRanker::new(1, 2);
+        sm.add_path(0, "/b".to_string(), 1);
+        sm.add_path(0, "/a".to_string(), 0);
+        let rows = sm.collect_rows();
+        assert_eq!(2, rows.len());
+        assert_eq!("/a", rows[0]);
+        assert_eq!("/b", rows[1]);
+
+        // 2 window, 2 same set
+        debug!("2 window, same set twice");
+        let mut sm = SmartRanker::new(2, 2);
+        sm.add_path(0, "/a".to_string(), 0);
+        sm.add_path(0, "/b".to_string(), 1);
+        sm.add_path(1, "/a".to_string(), 0);
+        sm.add_path(1, "/b".to_string(), 1);
+        let rows = sm.collect_rows();
+        debug!("Rows: {:?}", rows);
+        assert_eq!(2, rows.len());
+        assert_eq!("/a", rows[0]);
+        assert_eq!("/b", rows[1]);
+
+        // 2 window, 2 sets
+        debug!("2 window, same set twice");
+        let mut sm = SmartRanker::new(1, 2);
+        sm.add_path(0, "/b".to_string(), 0);
+        sm.add_path(0, "/a".to_string(), 0);
+        sm.add_path(0, "/b".to_string(), 1);
+        let rows = sm.collect_rows();
+        debug!("Rows: {:?}", rows);
+        assert_eq!(2, rows.len());
+        assert_eq!("/b", rows[0]);
+        assert_eq!("/a", rows[1]);
+    }
+
+    #[test]
+    fn test_smart_ranker_ranking_entries() {
+        init_logging_once_for(
+            vec!["cdir::store"],
+            LevelFilter::Trace,
+            "{h({d(%H:%M:%S%.3f)} {({l}):5.5} {f}:{L} — {m}{n})}",
+        );
+
+        let mut sm = SmartRanker::new(1, 5);
+        sm.add_path(0, "/a".to_string(), 0);
+        sm.add_path(0, "/b".to_string(), 1);
+        sm.add_path(0, "/c".to_string(), 2);
+        sm.add_path(0, "/c".to_string(), 2);
+        sm.add_path(0, "/c".to_string(), 2);
+
+        let rows = sm.collect_rows();
+        debug!("Rows: {:?}", rows);
+        assert_eq!(3, rows.len());
+        assert_eq!("/a", rows[0]);
+        assert_eq!("/c", rows[1]);
+        assert_eq!("/b", rows[2]);
+    }
+
+    #[test]
+    fn test_list_path_history_smart_suggestions_basic() {
+        init_logging_once_for(
+            vec!["cdir::store"],
+            LevelFilter::Trace,
+            "{h({d(%H:%M:%S%.3f)} {({l}):5.5} {f}:{L} — {m}{n})}",
+        );
+        let store = Store::setup_test_store();
+
+        // Add some paths - including the same path multiple times
+        store.add_path("/home/user/documents").unwrap();
+        store.add_path("/var/log/app1.1").unwrap();
+        store.add_path("/var/log/app1.2").unwrap();
+        store.add_path("/var/log/app1.3").unwrap();
+
+        // Get history context for a specific path
+        let shortcuts = store.list_all_shortcuts().unwrap_or_default();
+        let suggestions = store
+            .list_path_history_smart_suggestions("/home/user/documents", 1, 3, &shortcuts)
+            .unwrap();
+
+        // Should return all entries for that specific path
+        assert_eq!(suggestions.len(), 3);
+        debug!("smart suggestions entries: {:?}", suggestions);
+        assert_eq!("/var/log/app1.1", suggestions[0].path);
+        assert_eq!("/var/log/app1.2", suggestions[1].path);
+        assert_eq!("/var/log/app1.3", suggestions[2].path);
+    }
+
+    #[test]
+    fn test_list_path_history_smart_suggestions_empty_database() {
+        let store = Store::setup_test_store();
+        let shortcuts = store.list_all_shortcuts().unwrap_or_default();
+
+        // Query on empty database
+        let suggestions = store
+            .list_path_history_smart_suggestions("/home/user/documents", 1, 5, &shortcuts)
+            .unwrap();
+        assert_eq!(suggestions.len(), 0);
+    }
+
+    #[test]
+    fn test_list_path_history_smart_suggestions_empty_match_path() {
+        let store = Store::setup_test_store();
+
+        store.add_path("/home/user/documents").unwrap();
+        store.add_path("/var/log/app").unwrap();
+
+        let shortcuts = store.list_all_shortcuts().unwrap_or_default();
+
+        // Empty match_path should return empty results
+        let suggestions = store
+            .list_path_history_smart_suggestions("", 1, 5, &shortcuts)
+            .unwrap();
+        assert_eq!(suggestions.len(), 0);
+    }
+
+    #[test]
+    fn test_list_path_history_smart_suggestions_no_match() {
+        let store = Store::setup_test_store();
+
+        store.add_path("/home/user/documents").unwrap();
+        store.add_path("/var/log/app").unwrap();
+
+        let shortcuts = store.list_all_shortcuts().unwrap_or_default();
+
+        // Query for path that doesn't exist in history
+        let suggestions = store
+            .list_path_history_smart_suggestions("/nonexistent/path", 1, 5, &shortcuts)
+            .unwrap();
+        assert_eq!(suggestions.len(), 0);
+    }
+
+    #[test]
+    fn test_list_path_history_smart_suggestions_no_subsequent_paths() {
+        let store = Store::setup_test_store();
+
+        // Add a path but no paths after it
+        store.add_path("/home/user/documents").unwrap();
+
+        let shortcuts = store.list_all_shortcuts().unwrap_or_default();
+
+        // Should return empty - no paths came after the target
+        let suggestions = store
+            .list_path_history_smart_suggestions("/home/user/documents", 1, 5, &shortcuts)
+            .unwrap();
+        assert_eq!(suggestions.len(), 0);
+    }
+
+    #[test]
+    fn test_list_path_history_smart_suggestions_with_count_limit() {
+        let store = Store::setup_test_store();
+
+        store.add_path("/home/user/start").unwrap();
+        store.add_path("/path1").unwrap();
+        store.add_path("/path2").unwrap();
+        store.add_path("/path3").unwrap();
+        store.add_path("/path4").unwrap();
+        store.add_path("/path5").unwrap();
+
+        let shortcuts = store.list_all_shortcuts().unwrap_or_default();
+
+        // Request only 3 suggestions
+        let suggestions = store
+            .list_path_history_smart_suggestions("/home/user/start", 1, 3, &shortcuts)
+            .unwrap();
+        assert_eq!(suggestions.len(), 3);
+        assert_eq!("/path1", suggestions[0].path);
+        assert_eq!("/path2", suggestions[1].path);
+        assert_eq!("/path3", suggestions[2].path);
+    }
+
+    #[test]
+    fn test_list_path_history_smart_suggestions_with_depth() {
+        init_logging_once_for(
+            vec!["cdir::store"],
+            LevelFilter::Trace,
+            "{h({d(%H:%M:%S%.3f)} {({l}):5.5} {f}:{L} — {m}{n})}",
+        );
+        let store = Store::setup_test_store();
+
+        // First sequence: start -> a -> b
+        store.add_path("/start").unwrap();
+        store.add_path("/a").unwrap();
+        store.add_path("/b").unwrap();
+
+        // Second sequence: start -> c -> d
+        store.add_path("/start").unwrap();
+        store.add_path("/c").unwrap();
+        store.add_path("/d").unwrap();
+
+        // Third sequence: start -> e -> f
+        store.add_path("/start").unwrap();
+        store.add_path("/e").unwrap();
+        store.add_path("/f").unwrap();
+
+        let shortcuts = store.list_all_shortcuts().unwrap_or_default();
+
+        // With depth=1, should only look at most recent occurrence
+        let suggestions = store
+            .list_path_history_smart_suggestions("/start", 1, 5, &shortcuts)
+            .unwrap();
+        assert_eq!(suggestions.len(), 2);
+        assert_eq!("/e", suggestions[0].path);
+        assert_eq!("/f", suggestions[1].path);
+
+        // With depth=2, should look at two most recent occurrences
+        let suggestions = store
+            .list_path_history_smart_suggestions("/start", 2, 5, &shortcuts)
+            .unwrap();
+        assert_eq!(suggestions.len(), 4);
+        // Should include paths from both sequences, with most recent sequence first
+        assert_eq!("/e", suggestions[0].path);
+        assert_eq!("/c", suggestions[1].path);
+
+        // With depth=3, should look at all three occurrences
+        let suggestions = store
+            .list_path_history_smart_suggestions("/start", 3, 10, &shortcuts)
+            .unwrap();
+        assert_eq!(suggestions.len(), 6);
+    }
+
+    #[test]
+    fn test_list_path_history_smart_suggestions_duplicate_suggestions() {
+        let store = Store::setup_test_store();
+
+        // First sequence: start -> common -> other1
+        store.add_path("/start").unwrap();
+        store.add_path("/common").unwrap();
+        store.add_path("/other1").unwrap();
+
+        // Second sequence: start -> common -> other2
+        store.add_path("/start").unwrap();
+        store.add_path("/common").unwrap();
+        store.add_path("/other2").unwrap();
+
+        let shortcuts = store.list_all_shortcuts().unwrap_or_default();
+
+        // Should deduplicate "/common" and rank it highly
+        let suggestions = store
+            .list_path_history_smart_suggestions("/start", 2, 5, &shortcuts)
+            .unwrap();
+
+        // "/common" should appear only once and be ranked first due to appearing in both sequences
+        assert!(suggestions.iter().any(|p| p.path == "/common"));
+        let common_count = suggestions.iter().filter(|p| p.path == "/common").count();
+        assert_eq!(common_count, 1);
+    }
+
+    #[test]
+    fn test_list_path_history_smart_suggestions_smart_path_flag() {
+        let store = Store::setup_test_store();
+
+        store.add_path("/start").unwrap();
+        store.add_path("/next1").unwrap();
+        store.add_path("/next2").unwrap();
+
+        let shortcuts = store.list_all_shortcuts().unwrap_or_default();
+
+        let suggestions = store
+            .list_path_history_smart_suggestions("/start", 1, 5, &shortcuts)
+            .unwrap();
+
+        // All suggestions should have smart_path=true
+        assert!(suggestions.iter().all(|p| p.smart_path));
+    }
+
+    #[test]
+    fn test_list_path_history_smart_suggestions_with_shortcuts() {
+        let store = Store::setup_test_store();
+
+        // Add shortcuts
+        store
+            .add_shortcut("docs", "/home/user/documents", None)
+            .unwrap();
+        store.add_shortcut("logs", "/var/log", None).unwrap();
+
+        // Add path sequence
+        store.add_path("/start").unwrap();
+        store.add_path("/home/user/documents/file1").unwrap();
+        store.add_path("/var/log/app.log").unwrap();
+
+        let shortcuts = store.list_all_shortcuts().unwrap();
+
+        let suggestions = store
+            .list_path_history_smart_suggestions("/start", 1, 5, &shortcuts)
+            .unwrap();
+
+        assert_eq!(suggestions.len(), 2);
+        // All suggestions should have shortcuts assigned where applicable
+        assert!(suggestions[0].shortcut.is_some());
+        assert_eq!(suggestions[0].shortcut.as_ref().unwrap().name, "docs");
+        assert!(suggestions[1].shortcut.is_some());
+        assert_eq!(suggestions[1].shortcut.as_ref().unwrap().name, "logs");
+    }
+
+    #[test]
+    fn test_list_path_history_smart_suggestions_zero_count() {
+        let store = Store::setup_test_store();
+
+        store.add_path("/start").unwrap();
+        store.add_path("/next").unwrap();
+
+        let shortcuts = store.list_all_shortcuts().unwrap_or_default();
+
+        // Zero count should return empty
+        let suggestions = store
+            .list_path_history_smart_suggestions("/start", 1, 0, &shortcuts)
+            .unwrap();
+        assert_eq!(suggestions.len(), 0);
+    }
+
+    #[test]
+    fn test_list_path_history_smart_suggestions_zero_depth() {
+        let store = Store::setup_test_store();
+
+        store.add_path("/start").unwrap();
+        store.add_path("/next").unwrap();
+
+        let shortcuts = store.list_all_shortcuts().unwrap_or_default();
+
+        // Zero depth should return empty
+        let suggestions = store
+            .list_path_history_smart_suggestions("/start", 0, 5, &shortcuts)
+            .unwrap();
+        assert_eq!(suggestions.len(), 0);
+    }
+
+    #[test]
+    fn test_list_path_history_smart_suggestions_excludes_match_path() {
+        let store = Store::setup_test_store();
+
+        // Create a cycle: start -> a -> start -> b
+        store.add_path("/start").unwrap();
+        store.add_path("/a").unwrap();
+        store.add_path("/start").unwrap();
+        store.add_path("/b").unwrap();
+
+        let shortcuts = store.list_all_shortcuts().unwrap_or_default();
+
+        let suggestions = store
+            .list_path_history_smart_suggestions("/start", 1, 5, &shortcuts)
+            .unwrap();
+
+        // Should only get "/b" - the second "/start" should be excluded
+        assert_eq!(suggestions.len(), 1);
+        assert_eq!("/b", suggestions[0].path);
+    }
+
+    #[test]
+    fn test_list_path_history_smart_suggestions_ranking() {
+        init_logging_once_for(
+            vec!["cdir::store"],
+            LevelFilter::Trace,
+            "{h({d(%H:%M:%S%.3f)} {({l}):5.5} {f}:{L} — {m}{n})}",
+        );
+        let store = Store::setup_test_store();
+
+        // First sequence: start -> a -> b -> c
+        store.add_path("/start").unwrap();
+        store.add_path("/a").unwrap();
+        store.add_path("/b").unwrap();
+        store.add_path("/c").unwrap();
+
+        // Second sequence: start -> a -> b -> d
+        store.add_path("/start").unwrap();
+        store.add_path("/a").unwrap();
+        store.add_path("/b").unwrap();
+        store.add_path("/d").unwrap();
+
+        let shortcuts = store.list_all_shortcuts().unwrap_or_default();
+
+        let suggestions = store
+            .list_path_history_smart_suggestions("/start", 2, 5, &shortcuts)
+            .unwrap();
+
+        // "/a" and "/b" appear in both sequences and should be ranked highly
+        // They should appear before "/c" and "/d" which only appear once
+        assert!(suggestions.len() >= 2);
+        assert_eq!("/a", suggestions[0].path);
+        assert_eq!("/b", suggestions[1].path);
+    }
+
+    #[test]
+    fn test_list_path_history_smart_suggestions_recent_sequence_priority() {
+        init_logging_once_for(
+            vec!["cdir::store"],
+            LevelFilter::Trace,
+            "{h({d(%H:%M:%S%.3f)} {({l}):5.5} {f}:{L} — {m}{n})}",
+        );
+
+        let store = Store::setup_test_store();
+
+        // Old sequence: start -> old_path
+        store.add_path("/start").unwrap();
+        store.add_path("/old_path").unwrap();
+
+        // Recent sequence: start -> new_path1 -> new_path2
+        store.add_path("/start").unwrap();
+        store.add_path("/new_path1").unwrap();
+        store.add_path("/new_path2").unwrap();
+
+        let shortcuts = store.list_all_shortcuts().unwrap_or_default();
+
+        // With depth=1, should only see recent sequence
+        let suggestions = store
+            .list_path_history_smart_suggestions("/start", 2, 5, &shortcuts)
+            .unwrap();
+
+        assert_eq!(suggestions.len(), 3);
+        assert_eq!("/new_path1", suggestions[0].path);
+        assert_eq!("/old_path", suggestions[1].path);
+        assert_eq!("/new_path2", suggestions[2].path);
+    }
+
+    #[test]
+    fn test_list_path_history_smart_suggestions_multiple_occurrences_same_path() {
+        let store = Store::setup_test_store();
+
+        // Sequence: start -> a -> a -> a -> b
+        store.add_path("/start").unwrap();
+        store.add_path("/a").unwrap();
+        store.add_path("/a").unwrap();
+        store.add_path("/a").unwrap();
+        store.add_path("/b").unwrap();
+
+        let shortcuts = store.list_all_shortcuts().unwrap_or_default();
+
+        let suggestions = store
+            .list_path_history_smart_suggestions("/start", 1, 5, &shortcuts)
+            .unwrap();
+
+        // Should handle multiple occurrences of same path
+        // "/a" should appear once in suggestions, even though it appears 3 times after "/start"
+        let a_count = suggestions.iter().filter(|p| p.path == "/a").count();
+        assert_eq!(a_count, 1);
+    }
+
+    #[test]
+    fn test_list_path_history_smart_suggestions_complex_pattern() {
+        init_logging_once_for(
+            vec!["cdir::store"],
+            LevelFilter::Trace,
+            "{h({d(%H:%M:%S%.3f)} {({l}):5.5} {f}:{L} — {m}{n})}",
+        );
+        let store = Store::setup_test_store();
+
+        // Simulate realistic usage: project dir -> edit -> test -> commit
+        store.add_path("/project").unwrap();
+        store.add_path("/project/src/main.rs").unwrap();
+        store.add_path("/project/tests").unwrap();
+        store.add_path("/tmp/notes").unwrap();
+
+        store.add_path("/project").unwrap();
+        store.add_path("/project/src/main.rs").unwrap();
+        store.add_path("/project/tests").unwrap();
+
+        store.add_path("/project").unwrap();
+        store.add_path("/project/src/lib.rs").unwrap();
+        store.add_path("/project/docs").unwrap();
+
+        let shortcuts = store.list_all_shortcuts().unwrap_or_default();
+
+        let suggestions = store
+            .list_path_history_smart_suggestions("/project", 3, 5, &shortcuts)
+            .unwrap();
+
+        debug!("Complex pattern suggestions: {:?}", suggestions);
+
+        // Should identify common paths after visiting /project
+        assert!(!suggestions.is_empty());
+        // src/main.rs appears twice, should be ranked high
+        assert!(suggestions.iter().any(|p| p.path == "/project/src/main.rs"));
+        // tests appears twice, should be ranked high
+        assert!(suggestions.iter().any(|p| p.path == "/project/tests"));
     }
 }

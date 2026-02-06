@@ -23,6 +23,10 @@ const DEFAULT_LOG_CONFIG_PATH: fn() -> Option<PathBuf> = || {
     Some(path)
 };
 
+const DEFAULT_SMART_SUGGESTIONS_DEPTH: fn() -> usize = || 5;
+
+const DEFAULT_SMART_SUGGESTIONS_COUNT: fn() -> usize = || 3;
+
 const DEFAULT_THEMES_DIRECTORY_PATH: fn() -> Option<PathBuf> = || {
     let mut path = dirs::home_dir().unwrap();
     path.push(".config");
@@ -56,6 +60,15 @@ pub struct Config {
 
     #[serde(default = "DEFAULT_TRUE")]
     pub path_search_include_shortcuts: bool,
+
+    #[serde(default = "DEFAULT_TRUE")]
+    pub smart_suggestions_active: bool,
+
+    #[serde(default = "DEFAULT_SMART_SUGGESTIONS_DEPTH")]
+    pub smart_suggestions_depth: usize,
+
+    #[serde(default = "DEFAULT_SMART_SUGGESTIONS_COUNT")]
+    pub smart_suggestions_count: usize,
 
     #[serde(default = "DEFAULT_THEMES_DIRECTORY_PATH")]
     pub themes_directory_path: Option<PathBuf>,
@@ -393,6 +406,9 @@ impl Default for Config {
             inline_theme_dark: Default::default(),
             inline_theme_light: Default::default(),
             styles: Default::default(),
+            smart_suggestions_active: true,
+            smart_suggestions_depth: DEFAULT_SMART_SUGGESTIONS_DEPTH(),
+            smart_suggestions_count: DEFAULT_SMART_SUGGESTIONS_COUNT(),
             themes_directory_path: Default::default(),
             date_formater: Box::new(|date| date.to_string()),
             db_path: Default::default(),
@@ -414,6 +430,9 @@ impl Clone for Config {
             inline_theme_dark: self.inline_theme_dark.clone(),
             inline_theme_light: self.inline_theme_light.clone(),
             styles: self.styles.clone(),
+            smart_suggestions_active: self.smart_suggestions_active,
+            smart_suggestions_depth: self.smart_suggestions_depth,
+            smart_suggestions_count: self.smart_suggestions_count,
             themes_directory_path: self.themes_directory_path.clone(),
             db_path: self.db_path.clone(),
             log_config_path: self.log_config_path.clone(),
