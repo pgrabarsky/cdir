@@ -1,8 +1,22 @@
-# Path to the sqlite file storing the data
+# Path to the SQLite database file
 db_path: __DATA_PATH__/cdir.db
 
-# Path to the log configuration file
+# Path to the logging configuration file
 log_config_path: __CONFIG_PATH__/log4rs.yaml
+
+# ------------------------------------
+# Path search settings
+# ------------------------------------
+
+# By default, text search includes the following fields:
+# - The file path itself (e.g., /a/b/c/...)
+# - For each shortcut the path is relative to, its name and description
+#
+# Set to false to search only file paths.
+#
+# path_search_include_shortcuts: false
+
+# ------------------------------------
 
 # Theme
 # These ones are provided by default (check your "themes" directory):

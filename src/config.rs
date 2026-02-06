@@ -42,6 +42,8 @@ const DEFAULT_DATE_FORMATER: fn() -> Box<dyn Fn(i64) -> String> =
 
 const DEFAULT_NONE: fn() -> Option<String> = || None;
 
+const DEFAULT_TRUE: fn() -> bool = || true;
+
 /// Application configuration structure.
 /// The configuration can be loaded from a YAML file.
 #[derive(Serialize, Deserialize)]
@@ -51,6 +53,9 @@ pub struct Config {
 
     #[serde(default = "DEFAULT_LOG_CONFIG_PATH")]
     pub log_config_path: Option<PathBuf>,
+
+    #[serde(default = "DEFAULT_TRUE")]
+    pub path_search_include_shortcuts: bool,
 
     #[serde(default = "DEFAULT_THEMES_DIRECTORY_PATH")]
     pub themes_directory_path: Option<PathBuf>,
@@ -392,6 +397,7 @@ impl Default for Config {
             date_formater: Box::new(|date| date.to_string()),
             db_path: Default::default(),
             log_config_path: Default::default(),
+            path_search_include_shortcuts: true,
             date_format: Default::default(),
         }
     }
@@ -411,6 +417,7 @@ impl Clone for Config {
             themes_directory_path: self.themes_directory_path.clone(),
             db_path: self.db_path.clone(),
             log_config_path: self.log_config_path.clone(),
+            path_search_include_shortcuts: self.path_search_include_shortcuts,
             date_format: self.date_format.clone(),
             // Provide a new default closure for date_formater
             date_formater: Box::new(|date| date.to_string()),

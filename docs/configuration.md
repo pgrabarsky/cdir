@@ -186,6 +186,20 @@ theme_dark: dark-blue
 
 Then, in a similar way, the dark and light theme colors and styles can be specifically overriden using the parameter `inline_theme_dark` and `inline_theme_light`.
 
+## Path search behaviour
+
+When searching the paths with text, by default, the search targets the following fields:
+
+- The actual path (e.g. `/home/alex/work`);
+- For each shortcut that is parent of the path, the shortcut name and description.
+
+If there is a match, the path is selected.
+
+The search can be restricted to the actual path only by setting the following parameter to `false`:
+
+```yaml
+path_search_include_shortcuts: false
+```
 
 ## Date format
 

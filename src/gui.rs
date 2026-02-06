@@ -95,14 +95,39 @@ impl Gui {
         Span::from("~").style(home_tild_style) + Span::from(path[home.len()..].to_string())
     }
 
+    /// Return a Line where the path's associated shortcut is used to shorten the path display
+    /// If no shortcut is associated or no substitution is possible, return None
+    pub(crate) fn shorten_path_for_path(
+        config: &Config,
+        path: &Path,
+        size: u16,
+    ) -> Option<Line<'static>> {
+        if size == 0 {
+            return None;
+        }
+
+        path.shortcut.as_ref().and_then(|shortcut| {
+            let spm = format!("{}/", shortcut.path);
+            if path.path.starts_with(&spm) || path.path == shortcut.path.as_str() {
+                Some(Self::do_shorten_path(
+                    &path.path,
+                    &config.styles.shortcut_name_style,
+                    shortcut,
+                    size,
+                ))
+            } else {
+                None
+            }
+        })
+    }
+
     /// Return a Line where the longest matching shortcut path is replaced by the shortcut name
     /// If no substitution is possible, return None
-    pub(crate) fn shorten_path(
+    pub(crate) fn shorten_path_for_shortcut(
         config: &Config,
         shortcuts: &[Shortcut],
         path: &String,
         size: u16,
-        allow_shortcut_exact_match: bool,
     ) -> Option<Line<'static>> {
         if size == 0 {
             return None;
@@ -111,7 +136,8 @@ impl Gui {
         let mut shortened_line: Option<Line> = None;
         let mut cpath = "";
         for shortcut in shortcuts {
-            if !allow_shortcut_exact_match && path == &shortcut.path {
+            if path == &shortcut.path {
+                // skip if it's the same path
                 continue;
             }
             let spm = format!("{}/", shortcut.path);
@@ -177,14 +203,11 @@ impl Gui {
 
     /// Return a function that formats a row for the history view
     fn build_format_history_row_builder(
-        store: store::Store,
         config: Arc<Config>,
         table_view_state: Arc<Mutex<TableViewState>>,
     ) -> RowifyFn<store::Path> {
         let table_view_state = table_view_state.clone();
-        let store = store.clone();
         Box::new(move |paths: &[Path], size: &[u16]| {
-            let shortcuts: Vec<Shortcut> = store.list_all_shortcuts().unwrap();
             let table_view_state = table_view_state.clone();
             let config = config.clone();
             paths
@@ -197,16 +220,10 @@ impl Gui {
                             .style(config.styles.date_style),
                     );
 
-                    // format the path
+                    // format the path using the embedded shortcut
                     let shortened_line =
                         match table_view_state.lock().unwrap().display_with_shortcuts {
-                            true => Self::shorten_path(
-                                config.as_ref(),
-                                &shortcuts,
-                                &path.path,
-                                size[1],
-                                true,
-                            ),
+                            true => Self::shorten_path_for_path(config.as_ref(), &path, size[1]),
                             false => None,
                         };
                     let path = shortened_line
@@ -239,7 +256,6 @@ impl Gui {
                 Box::new(move |pos, len, text, fuzzy| store.list_paths(pos, len, text, fuzzy))
             },
             Box::new(Gui::build_format_history_row_builder(
-                store.clone(),
                 config.clone(),
                 self.table_view_state.clone(),
             )),
@@ -279,12 +295,11 @@ impl Gui {
                             true => {
                                 let all_shortcuts: Vec<Shortcut> =
                                     store.list_all_shortcuts().unwrap();
-                                Self::shorten_path(
+                                Self::shorten_path_for_shortcut(
                                     config.as_ref(),
                                     &all_shortcuts,
                                     &shortcut.path,
                                     size[1],
-                                    false,
                                 )
                             }
                             false => None,
@@ -450,8 +465,9 @@ mod tests {
             id: 1,
             path: "/home/user/docs/project".to_string(),
             date: 0,
+            shortcut: None,
         };
-        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 80, true);
+        let result = Gui::shorten_path_for_shortcut(&config, &shortcuts, &path.path, 80);
         assert!(result.is_some());
         let line = result.unwrap();
         let line_str = line.to_string();
@@ -471,8 +487,9 @@ mod tests {
             id: 1,
             path: "/home/user/other/project".to_string(),
             date: 0,
+            shortcut: None,
         };
-        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 80, true);
+        let result = Gui::shorten_path_for_shortcut(&config, &shortcuts, &path.path, 80);
         assert!(result.is_none());
     }
 
@@ -493,12 +510,8 @@ mod tests {
                 description: None,
             },
         ];
-        let path = Path {
-            id: 1,
-            path: "/home/user/docs/work".to_string(),
-            date: 0,
-        };
-        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 80, true);
+        let path = Path::new(1, "/home/user/docs/work".to_string(), 0, &shortcuts);
+        let result = Gui::shorten_path_for_path(&config, &path, 80);
         assert!(result.is_some());
         let line = result.unwrap();
         let line_str = line.to_string();
@@ -526,8 +539,9 @@ mod tests {
             id: 1,
             path: "/home/user/docs/work/project".to_string(),
             date: 0,
+            shortcut: None,
         };
-        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 80, true);
+        let result = Gui::shorten_path_for_shortcut(&config, &shortcuts, &path.path, 80);
         assert!(result.is_some());
         let line = result.unwrap();
         let line_str = line.to_string();
@@ -547,38 +561,39 @@ mod tests {
             id: 1,
             path: "/home/user/docs/project".to_string(),
             date: 0,
+            shortcut: None,
         };
-        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 14, true);
+        let result = Gui::shorten_path_for_shortcut(&config, &shortcuts, &path.path, 14);
         assert!(result.is_some());
         let line = result.unwrap();
         let line_str = line.to_string();
         assert_eq!(line_str, "[docs]/project");
 
-        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 13, true);
+        let result = Gui::shorten_path_for_shortcut(&config, &shortcuts, &path.path, 13);
         assert!(result.is_some());
         let line = result.unwrap();
         let line_str = line.to_string();
         assert_eq!(line_str, "[docs]/*oject");
 
-        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 9, true);
+        let result = Gui::shorten_path_for_shortcut(&config, &shortcuts, &path.path, 9);
         assert!(result.is_some());
         let line = result.unwrap();
         let line_str = line.to_string();
         assert_eq!(line_str, "[docs]/*t");
 
-        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 8, true);
+        let result = Gui::shorten_path_for_shortcut(&config, &shortcuts, &path.path, 8);
         assert!(result.is_some());
         let line = result.unwrap();
         let line_str = line.to_string();
         assert_eq!(line_str, "[docs]/*");
 
-        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 7, true);
+        let result = Gui::shorten_path_for_shortcut(&config, &shortcuts, &path.path, 7);
         assert!(result.is_some());
         let line = result.unwrap();
         let line_str = line.to_string();
         assert_eq!(line_str, "[docs]*");
 
-        let result = Gui::shorten_path(&config, &shortcuts, &path.path, 6, true);
+        let result = Gui::shorten_path_for_shortcut(&config, &shortcuts, &path.path, 6);
         assert!(result.is_some());
         let line = result.unwrap();
         let line_str = line.to_string();
@@ -596,6 +611,7 @@ mod tests {
             id: 1,
             path: format!("{}/project", home),
             date: 0,
+            shortcut: None,
         };
         let line = Gui::reduce_path(path.path, 80, Style::new());
         let line_str = line.to_string();
@@ -612,6 +628,7 @@ mod tests {
             id: 1,
             path: home.to_string(),
             date: 0,
+            shortcut: None,
         };
         let line = Gui::reduce_path(path.path, 80, Style::new());
         let line_str = line.to_string();
@@ -627,6 +644,7 @@ mod tests {
             id: 1,
             path: "/other/path/project".to_string(),
             date: 0,
+            shortcut: None,
         };
         let line = Gui::reduce_path(path.path, 80, Style::new());
         let line_str = line.to_string();
@@ -643,6 +661,7 @@ mod tests {
             id: 1,
             path: format!("{}/project", home),
             date: 0,
+            shortcut: None,
         };
 
         let line = Gui::reduce_path(path.path.clone(), 9, Style::new());
@@ -680,6 +699,7 @@ mod tests {
             id: 1,
             path: home.to_string(),
             date: 0,
+            shortcut: None,
         };
 
         let line = Gui::reduce_path(path.path.clone(), 2, Style::new());
@@ -701,6 +721,7 @@ mod tests {
             id: 1,
             path: "/other/path/project".to_string(),
             date: 0,
+            shortcut: None,
         };
 
         let line = Gui::reduce_path(path.path.clone(), 19, Style::new());

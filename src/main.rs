@@ -110,6 +110,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .db_path
             .as_ref()
             .expect("missing db_path into the configuration"),
+        config.clone(),
     );
     match &args.command {
         Some(Commands::Gui { filename }) => {
@@ -186,7 +187,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let max_width = max_width.unwrap_or(u16::MAX);
             let shortcuts: Vec<Shortcut> = store.list_all_shortcuts().unwrap();
             let shortened_line =
-                gui::Gui::shorten_path(config.as_ref(), &shortcuts, path, max_width, true);
+                gui::Gui::shorten_path_for_shortcut(config.as_ref(), &shortcuts, path, max_width);
             let shortened_line = shortened_line
                 .unwrap_or_else(|| {
                     gui::Gui::reduce_path(path.clone(), max_width, config1.styles.home_tilde_style)
