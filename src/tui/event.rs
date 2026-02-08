@@ -2,6 +2,10 @@
 
 use std::{any::Any, sync::Arc};
 
+#[cfg(test)]
+#[path = "event_tests.rs"]
+mod event_tests;
+
 type Payload = dyn Any + Send + Sync;
 
 #[derive(Debug, Clone)]
@@ -45,20 +49,4 @@ impl ApplicationEventBuilder {
 pub(crate) enum GenericEvent {
     ViewManagerEvent(ViewManagerEvent),
     ApplicationEvent(ApplicationEvent),
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test1() {
-        let payload = String::from("payload");
-        let ge = GenericEvent::ApplicationEvent(
-            ApplicationEventBuilder::new("id")
-                .with_payload(Arc::new(payload))
-                .build(),
-        );
-        assert!(matches!(ge, GenericEvent::ApplicationEvent(_)));
-    }
 }
