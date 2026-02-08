@@ -20,6 +20,13 @@ Return to them quickly from the UI or from the command line.
 In the UI, enter text to filter and find any previously visited directory or shortcut.
 If the default search is not enough, you can use fuzzy search.
 
+## :material-check-bold: Smart suggestions (experimental)
+
+When opening the UI, `cdir` can suggsts directories based on your current directory, recent activity, and frequency of visits.
+
+This feature is experimental.
+It is disabled by default but can be activated in the configuration file.
+
 ## :material-check-bold: Multi-shell support
 
 Works with both `zsh` and `bash`. More shells may be supported in the future.

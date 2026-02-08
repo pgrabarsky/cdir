@@ -11,6 +11,23 @@ $ cdir config-file
 
 Edit this file to adjust your settings as described below:
 
+## Smart suggestions (experimental)
+
+By default, the smart suggestions feature is *disabled*.
+You can enable it by setting the following option to `true` in the configuration file:
+
+```yaml
+smart_suggestions_active: true
+```
+
+The following parameter controls the maximum number of suggestions shown when opening the UI:
+
+```yaml
+smart_suggestions_count: 5
+```
+
+The default value is `3`.
+
 ## Themes and colors
 
 ### Selecting a theme

@@ -81,3 +81,17 @@ You can also specify that you want to search for a word at the beginning e.g. `^
 You can also reverse the search with ! e.g. `!src$`.
 
 In both the *Directory history* view and in the *Shortcuts view*, the directories are ordered by best match.
+
+## Smart suggestions (experimental)
+
+When activated, the smart suggestions feature suggsts directories based on your current directory, recent activity, and frequency of visits.
+
+They appear at the top of the *Directory history view* when you open the GUI.
+They are recognizable by the `@` character on the left side in place of the date.
+
+You can enable or disable this feature in the configuration file.
+
+!!! info
+    This feature is based on your history of visited directories.
+    If you have just started using `cdir` or just installed the release implementing it, or calling `cdir` from a
+    directory you have never visited before, no recommendation will be shown.

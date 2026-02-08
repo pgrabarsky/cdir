@@ -22,6 +22,7 @@ dark-light = { git = "https://github.com/rust-dark-light/dark-light.git", rev = 
 nucleo-matcher = "0.3.1"
 tokio = {version="1.49.0", features=["full"]}
 tokio-stream = {version="0.1.18", features = ["sync"]}
+log4rs_test_utils = "0.2.3"
 
 # The profile that 'dist' will build with
 [profile.dist]
