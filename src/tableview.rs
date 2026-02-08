@@ -249,12 +249,13 @@ impl<T: Clone + 'static> TableView<T> {
         list_fn: Box<ListFunction<T>>,
         rowify: RowifyFn<T>,
         stringify: fn(&T) -> String,
-        config: Arc<Config>,
+        config: Arc<Mutex<Config>>,
         view_state: Arc<Mutex<TableViewState>>,
         delete_fn: DeleteFn<T>,
         editor_modal_view_builder: Option<EditorViewBuilder<T>>,
         find_focus_fn: FindFocusFn<T>,
     ) -> ViewBuilder {
+        let styles = config.lock().unwrap().styles.clone();
         ViewBuilder::from(Box::new(TableView {
             vm: vm.clone(),
             tx: vm.tx(),
@@ -265,7 +266,7 @@ impl<T: Clone + 'static> TableView<T> {
             table_rows_count: 0,
             rowify,
             stringify,
-            styles: config.styles.clone(),
+            styles,
             view_state,
             delete_fn,
             editor_modal_view_builder,

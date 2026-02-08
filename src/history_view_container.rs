@@ -31,7 +31,7 @@ impl HistoryViewContainer {
         list_fn: Box<ListFunction<Path>>,
         rowify: RowifyFn<Path>,
         stringify: fn(&Path) -> String,
-        config: Arc<Config>,
+        config: Arc<Mutex<Config>>,
         view_state: Arc<Mutex<TableViewState>>,
         delete_fn: DeleteFn<Path>,
         editor_modal_view_builder: Option<EditorViewBuilder<Path>>,

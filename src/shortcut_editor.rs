@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crossterm::event::{KeyCode, KeyEvent};
 use log::{debug, error};
@@ -27,7 +27,7 @@ enum EditorField {
 
 pub struct ShortcutEditor {
     store: store::Store,
-    config: Arc<Config>,
+    config: Arc<Mutex<Config>>,
     shortcut: Option<Shortcut>,
     name_textarea: Option<TextArea<'static>>,
     description_textarea: Option<TextArea<'static>>,
@@ -35,7 +35,11 @@ pub struct ShortcutEditor {
 }
 
 impl ShortcutEditor {
-    pub fn builder(store: store::Store, config: Arc<Config>, shortcut: Shortcut) -> ViewBuilder {
+    pub fn builder(
+        store: store::Store,
+        config: Arc<Mutex<Config>>,
+        shortcut: Shortcut,
+    ) -> ViewBuilder {
         ViewBuilder::from(Box::new(Self {
             store,
             config,
@@ -83,16 +87,18 @@ impl View for ShortcutEditor {
     fn init(&mut self) {
         debug!("Initializing ShortcutEditor view");
 
+        let config_lock = self.config.lock().unwrap();
+
         // Initialize name textarea
         let mut name_textarea = TextArea::default();
         name_textarea.set_block(
             Block::default()
                 .borders(Borders::ALL)
                 .title("Name")
-                .title_style(self.config.styles.title_style)
-                .border_style(Style::default().fg(self.config.styles.border_color.unwrap())),
+                .title_style(config_lock.styles.title_style)
+                .border_style(Style::default().fg(config_lock.styles.border_color.unwrap())),
         );
-        name_textarea.set_cursor_line_style(self.config.styles.text_style);
+        name_textarea.set_cursor_line_style(config_lock.styles.text_style);
         if let Some(shortcut) = self.shortcut.as_ref() {
             name_textarea.insert_str(shortcut.name.as_str());
         }
@@ -104,10 +110,10 @@ impl View for ShortcutEditor {
             Block::default()
                 .borders(Borders::ALL)
                 .title("Description")
-                .title_style(self.config.styles.title_style)
-                .border_style(Style::default().fg(self.config.styles.border_color.unwrap())),
+                .title_style(config_lock.styles.title_style)
+                .border_style(Style::default().fg(config_lock.styles.border_color.unwrap())),
         );
-        description_textarea.set_cursor_line_style(self.config.styles.text_style);
+        description_textarea.set_cursor_line_style(config_lock.styles.text_style);
         if let Some(description) = self.shortcut.as_ref().unwrap().description.as_ref() {
             description_textarea.insert_str(description.as_str());
         }
@@ -121,6 +127,8 @@ impl View for ShortcutEditor {
         if self.name_textarea.is_none() || self.description_textarea.is_none() {
             return;
         }
+
+        let config_lock = self.config.lock().unwrap();
 
         // Create a modal that's centered on the screen
         let layout = Layout::vertical([
@@ -139,7 +147,7 @@ impl View for ShortcutEditor {
 
         frame.render_widget(Clear, modal_area);
         // Fill the frame with the background color if defined
-        if let Some(bg_color) = &self.config.styles.background_color {
+        if let Some(bg_color) = &config_lock.styles.background_color {
             let background = Paragraph::new("").style(Style::default().bg(*bg_color));
             frame.render_widget(background, modal_area);
         }
@@ -147,10 +155,10 @@ impl View for ShortcutEditor {
         // Draw the outer border
         let block = Block::default()
             .title("Edit Shortcut")
-            .title_style(self.config.styles.title_style)
+            .title_style(config_lock.styles.title_style)
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(self.config.styles.border_color.unwrap()))
-            .style(self.config.styles.text_style);
+            .border_style(Style::default().fg(config_lock.styles.border_color.unwrap()))
+            .style(config_lock.styles.text_style);
         frame.render_widget(block, modal_area);
 
         // Split modal into name, description, and buttons
@@ -176,8 +184,8 @@ impl View for ShortcutEditor {
                 Block::default()
                     .borders(Borders::ALL)
                     .title("Name")
-                    .title_style(self.config.styles.text_style)
-                    .border_style(Style::default().fg(self.config.styles.border_color.unwrap())),
+                    .title_style(config_lock.styles.text_style)
+                    .border_style(Style::default().fg(config_lock.styles.border_color.unwrap())),
             );
             // Show cursor only if this field is selected
             if self.selected_field == EditorField::Name {
@@ -195,8 +203,8 @@ impl View for ShortcutEditor {
                 Block::default()
                     .borders(Borders::ALL)
                     .title("Description")
-                    .title_style(self.config.styles.text_style)
-                    .border_style(Style::default().fg(self.config.styles.border_color.unwrap())),
+                    .title_style(config_lock.styles.text_style)
+                    .border_style(Style::default().fg(config_lock.styles.border_color.unwrap())),
             );
             // Show cursor only if this field is selected
             if self.selected_field == EditorField::Description {

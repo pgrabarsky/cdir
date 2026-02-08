@@ -995,7 +995,7 @@ fn test_path_search_include_shortcuts_disabled() {
 
     let store = Store {
         db_conn: Rc::from(Connection::open_in_memory().unwrap()),
-        config: Arc::new(config),
+        config: Arc::new(Mutex::new(config)),
     };
     store.init_schema();
 
@@ -1044,7 +1044,7 @@ fn test_path_search_include_shortcuts_filter_by_description_disabled() {
 
     let store = Store {
         db_conn: Rc::from(Connection::open_in_memory().unwrap()),
-        config: Arc::new(config),
+        config: Arc::new(Mutex::new(config)),
     };
     store.init_schema();
 
@@ -1073,7 +1073,7 @@ fn test_path_search_include_shortcuts_direct_path_match_always_works() {
 
     let store = Store {
         db_conn: Rc::from(Connection::open_in_memory().unwrap()),
-        config: Arc::new(config),
+        config: Arc::new(Mutex::new(config)),
     };
     store.init_schema();
 
@@ -1122,7 +1122,7 @@ fn test_list_path_fuzzy_with_shortcut_scoring_disabled() {
 
     let store = Store {
         db_conn: Rc::from(Connection::open_in_memory().unwrap()),
-        config: Arc::new(config),
+        config: Arc::new(Mutex::new(config)),
     };
     store.init_schema();
 

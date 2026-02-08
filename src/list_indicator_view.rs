@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use log::debug;
 use ratatui::{
@@ -30,11 +30,11 @@ impl ListIndicatorState {
 
 pub struct ListIndicatorView {
     state: ListIndicatorState,
-    config: Arc<Config>,
+    config: Arc<Mutex<Config>>,
 }
 
 impl ListIndicatorView {
-    pub fn builder(config: Arc<Config>, objects_type: String) -> ViewBuilder {
+    pub fn builder(config: Arc<Mutex<Config>>, objects_type: String) -> ViewBuilder {
         ViewBuilder::from(Box::new(ListIndicatorView {
             state: ListIndicatorState::new(objects_type),
             config,
@@ -45,8 +45,9 @@ impl ListIndicatorView {
 
 impl View for ListIndicatorView {
     fn draw(&mut self, frame: &mut ratatui::Frame, area: Rect, _active: bool) {
+        let config_lock = self.config.lock().unwrap();
         // Fill the frame with the background color if defined
-        if let Some(bg_color) = &self.config.styles.background_color {
+        if let Some(bg_color) = &config_lock.styles.background_color {
             // let area = frame.area();
             let background = Paragraph::new("").style(Style::default().bg(*bg_color));
             frame.render_widget(background, area);
@@ -55,11 +56,9 @@ impl View for ListIndicatorView {
         let pa = if self.state.is_empty {
             Paragraph::new("no entry")
                 .style(
-                    Style::default().fg(Color::Black).bg(self
-                        .config
-                        .styles
-                        .free_text_area_bg_color
-                        .unwrap()),
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(config_lock.styles.free_text_area_bg_color.unwrap()),
                 )
                 .bg(Color::Red)
                 .alignment(Alignment::Center)
@@ -67,8 +66,8 @@ impl View for ListIndicatorView {
             Paragraph::new("ctrl+h: help")
                 .style(
                     Style::default()
-                        .bg(self.config.styles.header_bg_color.unwrap())
-                        .fg(self.config.styles.header_fg_color.unwrap()),
+                        .bg(config_lock.styles.header_bg_color.unwrap())
+                        .fg(config_lock.styles.header_fg_color.unwrap()),
                 )
                 .alignment(Alignment::Center)
         };

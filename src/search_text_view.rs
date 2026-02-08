@@ -61,12 +61,12 @@ impl SearchTextState {
 }
 
 pub struct SearchTextView {
-    config: Arc<Config>,
+    config: Arc<Mutex<Config>>,
     state: Arc<Mutex<SearchTextState>>,
 }
 
 impl SearchTextView {
-    pub fn builder(config: Arc<Config>, state: Arc<Mutex<SearchTextState>>) -> ViewBuilder {
+    pub fn builder(config: Arc<Mutex<Config>>, state: Arc<Mutex<SearchTextState>>) -> ViewBuilder {
         ViewBuilder::from(Box::new(SearchTextView { config, state }))
     }
 
@@ -80,8 +80,9 @@ impl SearchTextView {
 impl View for SearchTextView {
     fn draw(&mut self, frame: &mut ratatui::Frame, area: Rect, active: bool) {
         debug!("draw area='{}' active='{}", area, active);
+        let config_lock = self.config.lock().unwrap();
         // Fill the frame with the background color if defined
-        if let Some(bg_color) = &self.config.styles.free_text_area_bg_color {
+        if let Some(bg_color) = &config_lock.styles.free_text_area_bg_color {
             // let area = frame.area();
             let background = Paragraph::new("").style(Style::default().bg(*bg_color));
             frame.render_widget(background, area);
@@ -108,22 +109,20 @@ impl View for SearchTextView {
                 Paragraph::new("[e]")
             };
             pa = pa.style(
-                self.config.styles.date_style.bg(self
-                    .config
+                config_lock
                     .styles
-                    .free_text_area_bg_color
-                    .unwrap()),
+                    .date_style
+                    .bg(config_lock.styles.free_text_area_bg_color.unwrap()),
             );
             frame.render_widget(pa, left);
 
             // Draw the free text area
 
             let pa = Paragraph::new(format!("{}{}", SEARCH_PROMPT, search_string.as_str())).style(
-                self.config.styles.path_style.bg(self
-                    .config
+                config_lock
                     .styles
-                    .free_text_area_bg_color
-                    .unwrap()),
+                    .path_style
+                    .bg(config_lock.styles.free_text_area_bg_color.unwrap()),
             );
             frame.render_widget(pa, search_text_area);
         }

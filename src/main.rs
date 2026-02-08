@@ -20,7 +20,7 @@ use std::{
     fs::File,
     io::Write,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use clap::{Parser, Subcommand};
@@ -103,10 +103,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     info!("Starting with args={args:?}");
 
-    let config = Arc::new(config);
+    let config = Arc::new(Mutex::new(config));
 
     let store = Store::new(
         config
+            .lock()
+            .unwrap()
             .db_path
             .as_ref()
             .expect("missing db_path into the configuration"),
@@ -174,25 +176,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         Some(Commands::Lasts) => {
             let list = store.list_paths(0, 10, "", false).unwrap();
+            let config_lock = config.lock().unwrap();
             list.iter()
-                .for_each(|s| println!("{} {}", (config.date_formater)(s.date), s.path));
+                .for_each(|s| println!("{} {}", (config_lock.date_formater)(s.date), s.path));
         }
         Some(Commands::PrettyPrintPath {
             path,
             style,
             max_width,
         }) => {
-            let config1 = config.clone();
-            let config2 = config.clone();
             let max_width = max_width.unwrap_or(u16::MAX);
             let shortcuts: Vec<Shortcut> = store.list_all_shortcuts().unwrap();
+            let config_lock = config.lock().unwrap();
             let shortened_line =
-                gui::Gui::shorten_path_for_shortcut(config.as_ref(), &shortcuts, path, max_width);
+                gui::Gui::shorten_path_for_shortcut(&config_lock, &shortcuts, path, max_width);
             let shortened_line = shortened_line
                 .unwrap_or_else(|| {
-                    gui::Gui::reduce_path(path.clone(), max_width, config1.styles.home_tilde_style)
+                    gui::Gui::reduce_path(
+                        path.clone(),
+                        max_width,
+                        config_lock.styles.home_tilde_style,
+                    )
                 })
-                .style(config2.styles.path_style);
+                .style(config_lock.styles.path_style);
             if style.is_none_or(|s| s) {
                 print!("{}", text_to_ansi(&Text::from(shortened_line)));
             } else {

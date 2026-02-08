@@ -31,7 +31,7 @@ impl ShortcutViewContainer {
         list_fn: Box<ListFunction<Shortcut>>,
         rowify: RowifyFn<Shortcut>,
         stringify: fn(&Shortcut) -> String,
-        config: Arc<Config>,
+        config: Arc<Mutex<Config>>,
         view_state: Arc<Mutex<TableViewState>>,
         delete_fn: DeleteFn<Shortcut>,
         editor_modal_view_builder: Option<EditorViewBuilder<Shortcut>>,

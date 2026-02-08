@@ -1,4 +1,4 @@
-use std::{env, fs, io::Write, path::PathBuf};
+use std::{env, fs, io::Write, path::PathBuf, sync::Arc};
 
 use chrono::{DateTime, Local};
 use log::{debug, error, info, trace};
@@ -41,8 +41,8 @@ const DEFAULT_THEME: fn() -> Option<String> = || Some(String::from("default"));
 
 const DEFAULT_COLORS: fn() -> Theme = || serde_yaml::from_str("").unwrap();
 
-const DEFAULT_DATE_FORMATER: fn() -> Box<dyn Fn(i64) -> String> =
-    || Box::from(|_| String::from(""));
+const DEFAULT_DATE_FORMATER: fn() -> Arc<dyn Fn(i64) -> String + Send + Sync> =
+    || Arc::from(|_| String::from(""));
 
 const DEFAULT_NONE: fn() -> Option<String> = || None;
 
@@ -99,12 +99,8 @@ pub struct Config {
     pub styles: ThemeStyles,
 
     #[serde(skip, default = "DEFAULT_DATE_FORMATER")]
-    pub date_formater: Box<dyn Fn(i64) -> String>,
+    pub date_formater: Arc<dyn Fn(i64) -> String + Send + Sync>,
 }
-
-// Not really true, but good enough for our use case as it is the case after initialization (immutable config)
-unsafe impl Send for Config {}
-unsafe impl Sync for Config {}
 
 impl Config {
     fn build_config_file_path(config_file_path: Option<PathBuf>) -> PathBuf {
@@ -148,7 +144,7 @@ impl Config {
         self.styles = ThemeStyles::from(&actual_theme);
 
         let date_format = self.date_format.clone();
-        self.date_formater = Box::from(move |s: i64| {
+        self.date_formater = Arc::from(move |s: i64| {
             DateTime::from_timestamp(s, 0)
                 .unwrap()
                 .with_timezone(&Local::now().timezone())
@@ -410,7 +406,7 @@ impl Default for Config {
             smart_suggestions_depth: DEFAULT_SMART_SUGGESTIONS_DEPTH(),
             smart_suggestions_count: DEFAULT_SMART_SUGGESTIONS_COUNT(),
             themes_directory_path: Default::default(),
-            date_formater: Box::new(|date| date.to_string()),
+            date_formater: Arc::new(|date| date.to_string()),
             db_path: Default::default(),
             log_config_path: Default::default(),
             path_search_include_shortcuts: true,
@@ -439,7 +435,7 @@ impl Clone for Config {
             path_search_include_shortcuts: self.path_search_include_shortcuts,
             date_format: self.date_format.clone(),
             // Provide a new default closure for date_formater
-            date_formater: Box::new(|date| date.to_string()),
+            date_formater: Arc::new(|date| date.to_string()),
         }
     }
 }
