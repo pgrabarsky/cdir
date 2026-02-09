@@ -136,13 +136,13 @@ impl View for ShortcutEditor {
             Constraint::Length(12),
             Constraint::Fill(1),
         ]);
-        let chunks = layout.split(modal_area);
+        let chunks: [Rect; 3] = layout.areas(modal_area);
         let center_layout = Layout::horizontal([
             Constraint::Fill(5),
             Constraint::Length(80),
             Constraint::Fill(5),
         ]);
-        let chunks = center_layout.split(chunks[1]);
+        let chunks: [Rect; 3] = center_layout.areas(chunks[1]);
         let modal_area = chunks[1];
 
         frame.render_widget(Clear, modal_area);
@@ -168,7 +168,7 @@ impl View for ShortcutEditor {
             width: modal_area.width - 2,
             height: modal_area.height - 2,
         };
-        let vchunks = Layout::default()
+        let vchunks: [Rect; 4] = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(3), // name textarea
@@ -176,7 +176,7 @@ impl View for ShortcutEditor {
                 Constraint::Fill(1),   // spacing
                 Constraint::Length(1), // buttons
             ])
-            .split(inner);
+            .areas(inner);
 
         // Update border styles and cursor visibility based on selected field
         if let Some(name_textarea) = self.name_textarea.as_mut() {
@@ -219,14 +219,14 @@ impl View for ShortcutEditor {
         }
 
         // Buttons at the bottom
-        let button_layout = Layout::default()
+        let button_layout: [Rect; 3] = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
                 Constraint::Length(10),
                 Constraint::Fill(1),
                 Constraint::Length(10),
             ])
-            .split(vchunks[3]);
+            .areas(vchunks[3]);
 
         let yes_style = if self.selected_field == EditorField::YesButton {
             Style::default()

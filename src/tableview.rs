@@ -222,6 +222,16 @@ impl<T: Clone + 'static> View for TableView<T> {
             let _ = self
                 .tx
                 .send(GenericEvent::ViewManagerEvent(ViewManagerEvent::Redraw));
+        } else if ae.id == "data.reload" {
+            self.data_model.reload();
+            self.table_state.select_cell(Some((
+                (self.find_focus_fn)(self.data_model.entries.as_ref().unwrap()),
+                0,
+            )));
+
+            let _ = self
+                .tx
+                .send(GenericEvent::ViewManagerEvent(ViewManagerEvent::Redraw));
         }
     }
 }
