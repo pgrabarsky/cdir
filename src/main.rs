@@ -1,4 +1,6 @@
 mod config;
+mod config_button;
+mod config_view;
 mod confirmation;
 mod expimp;
 mod gui;

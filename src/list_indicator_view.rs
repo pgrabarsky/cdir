@@ -1,8 +1,11 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 use log::debug;
 use ratatui::{
-    layout::{Alignment, Rect},
+    layout::{Alignment, Position, Rect},
     prelude::Style,
     style::{Color, Stylize},
     widgets::Paragraph,
@@ -10,8 +13,9 @@ use ratatui::{
 
 use crate::{
     config::Config,
+    help::Help,
     model::DataStatePayload,
-    tui::{View, ViewBuilder, event::ApplicationEvent},
+    tui::{ManagerAction, View, ViewBuilder, ViewManager, event::ApplicationEvent},
 };
 
 pub struct ListIndicatorState {
@@ -29,13 +33,19 @@ impl ListIndicatorState {
 }
 
 pub struct ListIndicatorView {
+    vm: Rc<ViewManager>,
     state: ListIndicatorState,
     config: Arc<Mutex<Config>>,
 }
 
 impl ListIndicatorView {
-    pub fn builder(config: Arc<Mutex<Config>>, objects_type: String) -> ViewBuilder {
+    pub fn builder(
+        vm: Rc<ViewManager>,
+        config: Arc<Mutex<Config>>,
+        objects_type: String,
+    ) -> ViewBuilder {
         ViewBuilder::from(Box::new(ListIndicatorView {
+            vm,
             state: ListIndicatorState::new(objects_type),
             config,
         }))
@@ -72,6 +82,24 @@ impl View for ListIndicatorView {
                 .alignment(Alignment::Center)
         };
         frame.render_widget(pa, area);
+    }
+    fn handle_mouse_event(
+        &mut self,
+        area: Rect,
+        mouse_event: crossterm::event::MouseEvent,
+    ) -> crate::tui::ManagerAction {
+        let mouse_position = Position::new(mouse_event.column, mouse_event.row);
+        if mouse_event.kind
+            == crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left)
+            && area.contains(mouse_position)
+        {
+            self.vm.show_modal_generic(
+                Help::builder(self.config.clone()),
+                None,
+            );
+            return ManagerAction::new(true);
+        }
+        ManagerAction::new(false)
     }
     fn handle_application_event(&mut self, ae: &ApplicationEvent) {
         debug!("handle_application_event");

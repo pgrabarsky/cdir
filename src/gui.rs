@@ -14,6 +14,7 @@ use ratatui::{
 
 use crate::{
     config::Config,
+    config_view::ConfigView,
     help::Help,
     history_view_container::HistoryViewContainer,
     search_text_view::SearchTextState,
@@ -474,15 +475,32 @@ impl Gui {
 /// Launch the GUI. Returns the selected path or None if the user quit.
 pub(crate) async fn gui(store: store::Store, config: Arc<Mutex<Config>>) -> Option<String> {
     debug!("gui");
+
     let mut view_manager: Rc<ViewManager> = Rc::new(ViewManager::new());
 
-    if let Some(vm) = Rc::get_mut(&mut view_manager) {
-        let config = config.clone();
-        vm.set_global_help_view(Box::new(move || {
-            Help::builder(config.lock().unwrap().styles.clone())
-        }))
+    {
+        // Set the global help view
+        let config1 = config.clone();
+        let help_builder = Box::new(move || Help::builder(config1.clone()));
+        Rc::get_mut(&mut view_manager)
+            .unwrap()
+            .set_global_help_view(help_builder);
     }
 
-    let mut gui = Gui::new(view_manager.clone(), store, config);
-    gui.run(view_manager).await
+    // {
+    //     // Set the global config view
+    //     let config2 = config.clone();
+    //     let view_manager2 = view_manager.clone();
+    //     let config_builder =
+    //         Box::new(move || ConfigView::builder(view_manager2.clone(), config2.clone()));
+    //     Rc::get_mut(&mut view_manager)
+    //         .unwrap()
+    //         .set_global_config_view(config_builder);
+    // }
+
+    {
+        // Launch the GUI
+        let mut gui = Gui::new(view_manager.clone(), store, config);
+        gui.run(view_manager).await
+    }
 }

@@ -41,7 +41,7 @@ impl ShortcutViewContainer {
             .child(
                 SHORTCUT_VIEW_ID,
                 TableView::builder(
-                    vm,
+                    vm.clone(),
                     "shortcut".to_string(),
                     column_names,
                     column_constraints,
@@ -62,7 +62,7 @@ impl ShortcutViewContainer {
             )
             .child(
                 LIST_INDICATOR_VIEW,
-                ListIndicatorView::builder(config.clone(), "shortcut".to_string()),
+                ListIndicatorView::builder(vm.clone(), config.clone(), "shortcut".to_string()),
             )
     }
 }

@@ -25,6 +25,7 @@ mod view_manager_tests;
 
 type ModalCallBack = Box<dyn FnOnce(&mut dyn View, &dyn View) -> ManagerAction>;
 type HelpViewBuilderCallBack = Box<dyn Fn() -> ViewBuilder>;
+type ConfigViewBuilderCallBack = Box<dyn Fn() -> ViewBuilder>;
 
 /// Represents a modal view entry with its associated parent and close callback.
 struct ModalEntry {
@@ -48,13 +49,16 @@ pub struct ViewManager {
     context_view: RefCell<Option<Rc<RefCell<ManagedView>>>>,
 
     global_help_view_builder_cb: Option<HelpViewBuilderCallBack>,
+    global_config_view_builder_cb: Option<ConfigViewBuilderCallBack>,
 
     exit_string: RefCell<Option<String>>,
 }
 
 #[allow(unused)]
 impl Default for ViewManager {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[allow(unused)]
@@ -69,14 +73,21 @@ impl ViewManager {
             modal_views: RefCell::new(vec![]),
             context_view: RefCell::new(None),
             global_help_view_builder_cb: None,
+            global_config_view_builder_cb: None,
             exit_string: RefCell::new(None),
         }
     }
 
-    pub fn tx(&self) -> broadcast::Sender<GenericEvent> { self.tx.clone() }
+    pub fn tx(&self) -> broadcast::Sender<GenericEvent> {
+        self.tx.clone()
+    }
 
     pub fn set_global_help_view(&mut self, help_view: HelpViewBuilderCallBack) {
         self.global_help_view_builder_cb = Some(help_view);
+    }
+
+    pub fn set_global_config_view(&mut self, config_view: ConfigViewBuilderCallBack) {
+        self.global_config_view_builder_cb = Some(config_view);
     }
 
     /// Returns a centered rectangle of the specified width and height within the given area.
@@ -293,20 +304,20 @@ impl ViewManager {
         true
     }
 
-    /// Handles key events for the topmost modal view if one exists.
-    ///
-    /// This method processes key events in the modal context and manages the modal lifecycle,
-    /// including closing modals and executing their associated callbacks.
+    /// Generic helper function to handle modal event processing with callback management.
     ///
     /// # Returns
     /// - `Some(ManagerAction)` if a modal handled the event
     /// - `None` if there are no active modals
-    fn handle_modal_key_event(&self, key_event: KeyEvent) -> Option<ManagerAction> {
+    fn handle_modal_event<F>(&self, event_handler: F) -> Option<ManagerAction>
+    where
+        F: FnOnce(&mut ModalEntry) -> ManagerAction,
+    {
         // Check if there's an active modal view
         let last_modal = self.modal_views.borrow().last()?.clone();
 
         let mut modal_entry = last_modal.borrow_mut();
-        let (_event_captured, action) = modal_entry.modal_view.view.handle_key_event(key_event);
+        let action = event_handler(&mut modal_entry);
 
         // If the modal should close and has a callback, execute it
         let final_action = if action.close() && modal_entry.on_close.is_some() {
@@ -335,6 +346,13 @@ impl ViewManager {
         drop(modal_entry);
 
         Some(final_action)
+    }
+
+    fn handle_modal_key_event(&self, key_event: KeyEvent) -> Option<ManagerAction> {
+        self.handle_modal_event(|modal_entry| {
+            let (_event_captured, action) = modal_entry.modal_view.view.handle_key_event(key_event);
+            action
+        })
     }
 
     /// Handles key events for the active view hierarchy.
@@ -502,11 +520,25 @@ impl ViewManager {
         Some(active_view_vec)
     }
 
+    fn handle_modal_mouse_event(&self, mouse_event: MouseEvent) -> Option<ManagerAction> {
+        self.handle_modal_event(|modal_entry| {
+            let area = modal_entry.modal_view.area;
+            modal_entry
+                .modal_view
+                .view
+                .handle_mouse_event(area, mouse_event)
+        })
+    }
     pub fn handle_mouse_event(&self, mouse_event: MouseEvent) -> ManagerAction {
         //trace!("handle_mouse_event {:?}", mouse_event);
 
         if !matches!(mouse_event.kind, crossterm::event::MouseEventKind::Down(_)) {
             return ManagerAction::new(false);
+        }
+
+        // First, check if there's an active modal view that should handle the event
+        if let Some(modal_action) = self.handle_modal_mouse_event(mouse_event) {
+            return modal_action;
         }
 
         // on mouse down, activate the view at the mouse position
@@ -536,6 +568,7 @@ impl ViewManager {
     /// - `None` if no active views exist
     fn handle_active_view_mouse_event(&self, mouse_event: MouseEvent) -> Option<ManagerAction> {
         debug!("handle_active_view_mouse_event {:?}", mouse_event);
+
         let top_level_view_idx = *self.top_level_view_idx.borrow();
         let active_view_vec = &self.active_view.borrow()[top_level_view_idx];
         let views = active_view_vec.as_ref()?;
@@ -668,7 +701,7 @@ impl ViewManager {
         &self,
         crossterm_event: Option<std::io::Result<Event>>,
     ) -> ManagerAction {
-        debug!("received crossterm event: {:?}", crossterm_event);
+        //trace!("received crossterm event: {:?}", crossterm_event);
         let mut manager_action: ManagerAction = ManagerAction::new(false);
         match crossterm_event {
             Some(Ok(event)) => match event {
@@ -698,6 +731,12 @@ impl ViewManager {
                                 &self.global_help_view_builder_cb
                         {
                             self.show_modal_generic(global_help_view_builder_cb(), None);
+                            manager_action.redraw = true;
+                        } else if key_event.code == KeyCode::F(1)
+                            && let Some(global_config_view_builder_cb) =
+                                &self.global_config_view_builder_cb
+                        {
+                            self.show_modal_generic(global_config_view_builder_cb(), None);
                             manager_action.redraw = true;
                         } else {
                             manager_action = self.handle_key_event(key_event);

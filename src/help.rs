@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use crossterm::event::{KeyCode, KeyEvent};
 use log::debug;
 use ratatui::{
@@ -8,17 +10,16 @@ use ratatui::{
 };
 
 use crate::{
-    theme::ThemeStyles,
-    tui::{EventCaptured, ManagerAction, View, ViewBuilder},
+    config::Config, tui::{EventCaptured, ManagerAction, View, ViewBuilder}
 };
 
 pub struct Help {
-    styles: ThemeStyles,
+    config: Arc<Mutex<Config>>,
 }
 
 impl Help {
-    pub fn builder(styles: ThemeStyles) -> ViewBuilder {
-        ViewBuilder::from(Box::new(Self { styles }))
+    pub fn builder(config: Arc<Mutex<Config>>) -> ViewBuilder {
+        ViewBuilder::from(Box::new(Self { config }))
     }
 }
 
@@ -52,8 +53,9 @@ impl View for Help {
 
         frame.render_widget(Clear, modal_area);
 
-        let ts = self.styles.text_style;
-        let es = self.styles.text_em_style;
+        let styles = self.config.lock().unwrap().styles.clone();
+        let ts = styles.text_style;
+        let es = styles.text_em_style;
 
         let message = Paragraph::new(vec![
         Line::from(vec![
@@ -132,12 +134,12 @@ impl View for Help {
     .block(
         Block::default()
             .padding(Padding::new(1, 1, 1, 1))
-            .title(Span::styled(" cdir help ", self.styles.title_style))
+            .title(Span::styled(" cdir help ", styles.title_style))
             .borders(Borders::ALL)
     );
 
         // Fill the frame with the background color if defined
-        if let Some(bg_color) = &self.styles.background_color {
+        if let Some(bg_color) = &styles.background_color {
             let background = Paragraph::new("").style(Style::default().bg(*bg_color));
             frame.render_widget(background, modal_area);
         }
