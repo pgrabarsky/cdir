@@ -43,13 +43,13 @@ impl View for Help {
             Constraint::Length(19),
             Constraint::Fill(1),
         ]);
-        let chunks = layout.split(modal_area);
+        let chunks: [Rect; 3] = layout.areas(modal_area);
         let center_layout = Layout::horizontal([
             Constraint::Fill(1),
             Constraint::Length(100),
             Constraint::Fill(1),
         ]);
-        let chunks = center_layout.split(chunks[1]);
+        let chunks: [Rect; 3] = center_layout.areas(chunks[1]);
         let modal_area = chunks[1];
 
         frame.render_widget(Clear, modal_area);

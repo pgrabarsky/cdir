@@ -135,7 +135,7 @@ impl View for ConfigView {
                 self.cancel_config();
                 close = true;
             }
-            KeyCode::Tab => {
+            KeyCode::Tab | KeyCode::Down => {
                 // Navigate between fields
                 self.selected_field = match self.selected_field {
                     ConfigField::Checkbox => ConfigField::CountField,
@@ -144,7 +144,7 @@ impl View for ConfigView {
                     ConfigField::CancelButton => ConfigField::Checkbox,
                 };
             }
-            KeyCode::BackTab => {
+            KeyCode::BackTab | KeyCode::Up => {
                 // Navigate backwards between fields (Shift+Tab)
                 self.selected_field = match self.selected_field {
                     ConfigField::Checkbox => ConfigField::CancelButton,
@@ -164,14 +164,6 @@ impl View for ConfigView {
                     ConfigField::YesButton => ConfigField::CancelButton,
                     ConfigField::CancelButton => ConfigField::YesButton,
                     _ => self.selected_field,
-                };
-            }
-            KeyCode::Up | KeyCode::Down => {
-                // Navigate between checkbox, count field, and buttons
-                self.selected_field = match self.selected_field {
-                    ConfigField::Checkbox => ConfigField::CountField,
-                    ConfigField::CountField => ConfigField::Checkbox,
-                    ConfigField::YesButton | ConfigField::CancelButton => ConfigField::Checkbox,
                 };
             }
             KeyCode::Char(' ') if self.selected_field == ConfigField::Checkbox => {
@@ -248,24 +240,35 @@ impl View for ConfigView {
     fn draw(&mut self, frame: &mut ratatui::Frame, modal_area: Rect, _active: bool) {
         let layout = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(12), // Increased height to accommodate TextArea
+            Constraint::Length(7),
             Constraint::Fill(1),
         ]);
-        let chunks = layout.split(modal_area);
+        let chunks: [Rect; 3] = layout.areas(modal_area);
         let center_layout = Layout::horizontal([
             Constraint::Fill(1),
             Constraint::Length(60),
             Constraint::Fill(1),
         ]);
-        let chunks = center_layout.split(chunks[1]);
+        let chunks: [Rect; 3] = center_layout.areas(chunks[1]);
         let modal_area = chunks[1];
 
         frame.render_widget(Clear, modal_area);
 
-        let block = ratatui::widgets::Block::default()
-            .borders(ratatui::widgets::Borders::ALL)
+        let config_lock = self.config.lock().unwrap();
+
+        // Fill the frame with the background color if defined
+        if let Some(bg_color) = &config_lock.styles.background_color {
+            let background = Paragraph::new("").style(Style::default().bg(*bg_color));
+            frame.render_widget(background, modal_area);
+        }
+
+        let block = Block::default()
             .title("Configuration")
-            .title_alignment(ratatui::layout::Alignment::Center);
+            .title_style(config_lock.styles.title_style)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(config_lock.styles.border_color.unwrap()))
+            .style(config_lock.styles.text_style);
+
         frame.render_widget(block, modal_area);
 
         // Create content area inside the block
@@ -287,25 +290,29 @@ impl View for ConfigView {
         let content_layout = Layout::vertical([
             Constraint::Length(1), // Empty line at top
             Constraint::Length(1), // Checkbox line
-            Constraint::Length(1), // Empty line
             Constraint::Length(1), // TextArea (3 lines with border)
-            Constraint::Length(1), // Empty line
-            Constraint::Length(1), // Help text
             Constraint::Length(1), // Empty line before buttons
             Constraint::Length(1), // Buttons
         ]);
-        let content_chunks = content_layout.split(inner_area);
+        let [
+            _top_spacer,
+            checkbox_area,
+            count_area,
+            _spacer3,
+            buttons_area,
+        ]: [Rect; 5] = content_layout.areas(inner_area);
 
         // Render checkbox with highlighting if selected
         let checkbox_style = if self.selected_field == ConfigField::Checkbox {
-            Style::default()
-                .fg(Color::Green)
+            config_lock
+                .styles
+                .text_style
                 .add_modifier(Modifier::REVERSED)
         } else {
-            Style::default().fg(Color::Green)
+            config_lock.styles.text_style
         };
         let checkbox = Paragraph::new(checkbox_text).style(checkbox_style);
-        frame.render_widget(checkbox, content_chunks[1]);
+        frame.render_widget(checkbox, checkbox_area);
 
         // Render count field as formatted text [XX] message
         if let Some(count_textarea) = &self.count_textarea {
@@ -320,31 +327,27 @@ impl View for ConfigView {
             let count_display = format!("[{}] Smart suggestions count", padded_count);
 
             let count_style = if self.selected_field == ConfigField::CountField {
-                Style::default()
-                    .fg(Color::Green)
+                config_lock
+                    .styles
+                    .text_style
                     .add_modifier(Modifier::REVERSED)
             } else {
-                Style::default().fg(Color::Green)
+                config_lock.styles.text_style
             };
 
             let count_paragraph = Paragraph::new(count_display).style(count_style);
-            frame.render_widget(count_paragraph, content_chunks[3]);
+            frame.render_widget(count_paragraph, count_area);
         }
 
-        // Render help text
-        let help_text = "Use TAB to navigate, SPACE/ENTER to toggle, ESC to cancel";
-        let help = Paragraph::new(help_text).style(Style::default().fg(Color::Gray));
-        frame.render_widget(help, content_chunks[5]);
-
         // Render buttons at the bottom
-        let button_layout = Layout::default()
+        let button_layout: [Rect; 3] = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
                 Constraint::Length(10),
                 Constraint::Fill(1),
                 Constraint::Length(10),
             ])
-            .split(content_chunks[7]);
+            .areas(buttons_area);
 
         let yes_style = if self.selected_field == ConfigField::YesButton {
             Style::default()
