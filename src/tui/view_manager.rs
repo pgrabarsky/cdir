@@ -48,17 +48,15 @@ pub struct ViewManager {
     modal_views: RefCell<Vec<Rc<RefCell<ModalEntry>>>>,
     context_view: RefCell<Option<Rc<RefCell<ManagedView>>>>,
 
-    global_help_view_builder_cb: Option<HelpViewBuilderCallBack>,
-    global_config_view_builder_cb: Option<ConfigViewBuilderCallBack>,
+    global_help_view_builder_cb: RefCell<Option<HelpViewBuilderCallBack>>,
+    global_config_view_builder_cb: RefCell<Option<ConfigViewBuilderCallBack>>,
 
     exit_string: RefCell<Option<String>>,
 }
 
 #[allow(unused)]
 impl Default for ViewManager {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 #[allow(unused)]
@@ -72,22 +70,21 @@ impl ViewManager {
             active_view: RefCell::new(vec![]),
             modal_views: RefCell::new(vec![]),
             context_view: RefCell::new(None),
-            global_help_view_builder_cb: None,
-            global_config_view_builder_cb: None,
+            global_help_view_builder_cb: RefCell::new(None),
+            global_config_view_builder_cb: RefCell::new(None),
             exit_string: RefCell::new(None),
         }
     }
 
-    pub fn tx(&self) -> broadcast::Sender<GenericEvent> {
-        self.tx.clone()
+    pub fn tx(&self) -> broadcast::Sender<GenericEvent> { self.tx.clone() }
+
+    pub fn set_global_help_view(&self, help_view: HelpViewBuilderCallBack) {
+        self.global_help_view_builder_cb.replace(Some(help_view));
     }
 
-    pub fn set_global_help_view(&mut self, help_view: HelpViewBuilderCallBack) {
-        self.global_help_view_builder_cb = Some(help_view);
-    }
-
-    pub fn set_global_config_view(&mut self, config_view: ConfigViewBuilderCallBack) {
-        self.global_config_view_builder_cb = Some(config_view);
+    pub fn set_global_config_view(&self, config_view: ConfigViewBuilderCallBack) {
+        self.global_config_view_builder_cb
+            .replace(Some(config_view));
     }
 
     /// Returns a centered rectangle of the specified width and height within the given area.
@@ -728,13 +725,13 @@ impl ViewManager {
                         } else if key_event.modifiers.contains(KeyModifiers::CONTROL)
                             && let KeyCode::Char('h') = key_event.code
                             && let Some(global_help_view_builder_cb) =
-                                &self.global_help_view_builder_cb
+                                &self.global_help_view_builder_cb.borrow().as_ref()
                         {
                             self.show_modal_generic(global_help_view_builder_cb(), None);
                             manager_action.redraw = true;
-                        } else if key_event.code == KeyCode::F(1)
+                        } else if key_event.code == KeyCode::F(12)
                             && let Some(global_config_view_builder_cb) =
-                                &self.global_config_view_builder_cb
+                                &self.global_config_view_builder_cb.borrow().as_ref()
                         {
                             self.show_modal_generic(global_config_view_builder_cb(), None);
                             manager_action.redraw = true;

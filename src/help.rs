@@ -10,7 +10,8 @@ use ratatui::{
 };
 
 use crate::{
-    config::Config, tui::{EventCaptured, ManagerAction, View, ViewBuilder}
+    config::Config,
+    tui::{EventCaptured, ManagerAction, View, ViewBuilder},
 };
 
 pub struct Help {

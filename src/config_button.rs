@@ -36,7 +36,7 @@ impl View for ConfigButton {
             frame.render_widget(background, area);
         }
 
-        let pa = Paragraph::new("Config")
+        let pa = Paragraph::new("F12: Config")
             .style(
                 Style::default()
                     .bg(config_lock.styles.header_bg_color.unwrap())

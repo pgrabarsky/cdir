@@ -476,27 +476,23 @@ impl Gui {
 pub(crate) async fn gui(store: store::Store, config: Arc<Mutex<Config>>) -> Option<String> {
     debug!("gui");
 
-    let mut view_manager: Rc<ViewManager> = Rc::new(ViewManager::new());
+    let view_manager: Rc<ViewManager> = Rc::new(ViewManager::new());
 
     {
         // Set the global help view
         let config1 = config.clone();
         let help_builder = Box::new(move || Help::builder(config1.clone()));
-        Rc::get_mut(&mut view_manager)
-            .unwrap()
-            .set_global_help_view(help_builder);
+        view_manager.set_global_help_view(help_builder);
     }
 
-    // {
-    //     // Set the global config view
-    //     let config2 = config.clone();
-    //     let view_manager2 = view_manager.clone();
-    //     let config_builder =
-    //         Box::new(move || ConfigView::builder(view_manager2.clone(), config2.clone()));
-    //     Rc::get_mut(&mut view_manager)
-    //         .unwrap()
-    //         .set_global_config_view(config_builder);
-    // }
+    {
+        // Set the global config view
+        let config2 = config.clone();
+        let view_manager2 = view_manager.clone();
+        let config_builder =
+            Box::new(move || ConfigView::builder(view_manager2.clone(), config2.clone()));
+        view_manager.set_global_config_view(config_builder);
+    }
 
     {
         // Launch the GUI

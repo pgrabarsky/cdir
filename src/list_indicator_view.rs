@@ -93,10 +93,8 @@ impl View for ListIndicatorView {
             == crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left)
             && area.contains(mouse_position)
         {
-            self.vm.show_modal_generic(
-                Help::builder(self.config.clone()),
-                None,
-            );
+            self.vm
+                .show_modal_generic(Help::builder(self.config.clone()), None);
             return ManagerAction::new(true);
         }
         ManagerAction::new(false)

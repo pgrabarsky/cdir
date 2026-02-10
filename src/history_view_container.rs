@@ -84,7 +84,7 @@ impl View for HistoryViewContainer {
             Constraint::Fill(1),
             Constraint::Length(14),
             Constraint::Length(1),
-            Constraint::Length(10),
+            Constraint::Length(12),
         ])
         .spacing(0);
         let [search_text_area, list_indicator_rect, _, config_rect] = horizontal.areas(bottom);
@@ -92,8 +92,8 @@ impl View for HistoryViewContainer {
         vec![
             (PATH_HISTORY_VIEW_ID, main),
             (SEARCH_TEXT_VIEW_1, search_text_area),
-            (CONFIGURATION_VIEW, config_rect),
             (LIST_INDICATOR_VIEW, list_indicator_rect),
+            (CONFIGURATION_VIEW, config_rect),
         ]
     }
     fn draw(&mut self, _frame: &mut ratatui::Frame, area: ratatui::prelude::Rect, active: bool) {
