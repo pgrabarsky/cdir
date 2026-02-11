@@ -93,7 +93,7 @@ fn initialize_logs(config_path: &Option<PathBuf>) {
 async fn main() -> Result<(), Box<dyn Error>> {
     color_eyre::install()?;
     let args = Args::parse();
-    let mut config = match Config::load(args.config_file.clone()) {
+    let mut config = match Config::initialize_and_load(args.config_file.clone()) {
         Ok(config) => config,
         Err(e) => {
             error!("{}", e);
@@ -190,8 +190,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let max_width = max_width.unwrap_or(u16::MAX);
             let shortcuts: Vec<Shortcut> = store.list_all_shortcuts().unwrap();
             let config_lock = config.lock().unwrap();
+            let path_entry = store::Path::new(0, path.clone(), 0, &shortcuts);
             let shortened_line =
-                gui::Gui::shorten_path_for_shortcut(&config_lock, &shortcuts, path, max_width);
+                gui::Gui::shorten_path_for_path(&config_lock, &path_entry, max_width);
             let shortened_line = shortened_line
                 .unwrap_or_else(|| {
                     gui::Gui::reduce_path(

@@ -57,13 +57,10 @@ impl ConfigView {
             config.smart_suggestions_active = self.smart_suggestions_active;
 
             // Save smart_suggestions_count from TextArea
-            if let Some(textarea) = &self.count_textarea {
-                let count_str = if textarea.lines().is_empty() {
-                    "3" // Default value
-                } else {
-                    textarea.lines()[0].as_str()
-                };
-
+            if let Some(textarea) = &self.count_textarea
+                && !textarea.lines().is_empty()
+            {
+                let count_str = textarea.lines()[0].as_str();
                 if let Ok(count) = count_str.parse::<usize>() {
                     info!("Saving smart_suggestions_count={}", count);
                     config.smart_suggestions_count = count;
@@ -71,7 +68,9 @@ impl ConfigView {
                     error!("Invalid count value '{}', keeping current value", count_str);
                 }
             }
-
+            if let Err(e) = config.save() {
+                error!("Failed to save config: {}", e);
+            }
             self.publish();
         } else {
             error!("Failed to lock config to save state");
