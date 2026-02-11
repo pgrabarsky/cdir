@@ -24,6 +24,7 @@ use crate::{
 #[derive(Copy, Clone, PartialEq)]
 enum ConfigField {
     Checkbox,
+    PathSearchCheckbox,
     CountField,
     YesButton,
     CancelButton,
@@ -34,6 +35,7 @@ pub struct ConfigView {
     config: Arc<Mutex<Config>>,
     selected_field: ConfigField,
     smart_suggestions_active: bool,
+    path_search_include_shortcuts: bool,
     count_textarea: Option<TextArea<'static>>,
 }
 
@@ -44,6 +46,7 @@ impl ConfigView {
             config,
             selected_field: ConfigField::Checkbox,
             smart_suggestions_active: false,
+            path_search_include_shortcuts: false,
             count_textarea: None,
         }))
     }
@@ -55,6 +58,7 @@ impl ConfigView {
                 self.smart_suggestions_active
             );
             config.smart_suggestions_active = self.smart_suggestions_active;
+            config.path_search_include_shortcuts = self.path_search_include_shortcuts;
 
             // Save smart_suggestions_count from TextArea
             if let Some(textarea) = &self.count_textarea
@@ -97,6 +101,7 @@ impl View for ConfigView {
     fn init(&mut self) {
         if let Ok(config_lock) = self.config.lock() {
             self.smart_suggestions_active = config_lock.smart_suggestions_active;
+            self.path_search_include_shortcuts = config_lock.path_search_include_shortcuts;
 
             // Initialize count textarea
             let mut count_textarea = TextArea::default();
@@ -137,7 +142,8 @@ impl View for ConfigView {
             KeyCode::Tab | KeyCode::Down => {
                 // Navigate between fields
                 self.selected_field = match self.selected_field {
-                    ConfigField::Checkbox => ConfigField::CountField,
+                    ConfigField::Checkbox => ConfigField::PathSearchCheckbox,
+                    ConfigField::PathSearchCheckbox => ConfigField::CountField,
                     ConfigField::CountField => ConfigField::YesButton,
                     ConfigField::YesButton => ConfigField::CancelButton,
                     ConfigField::CancelButton => ConfigField::Checkbox,
@@ -147,7 +153,8 @@ impl View for ConfigView {
                 // Navigate backwards between fields (Shift+Tab)
                 self.selected_field = match self.selected_field {
                     ConfigField::Checkbox => ConfigField::CancelButton,
-                    ConfigField::CountField => ConfigField::Checkbox,
+                    ConfigField::PathSearchCheckbox => ConfigField::Checkbox,
+                    ConfigField::CountField => ConfigField::PathSearchCheckbox,
                     ConfigField::YesButton => ConfigField::CountField,
                     ConfigField::CancelButton => ConfigField::YesButton,
                 };
@@ -168,11 +175,18 @@ impl View for ConfigView {
             KeyCode::Char(' ') if self.selected_field == ConfigField::Checkbox => {
                 self.smart_suggestions_active = !self.smart_suggestions_active;
             }
+            KeyCode::Char(' ') if self.selected_field == ConfigField::PathSearchCheckbox => {
+                self.path_search_include_shortcuts = !self.path_search_include_shortcuts;
+            }
             KeyCode::Enter => {
                 match self.selected_field {
                     ConfigField::Checkbox => {
                         // Toggle smart suggestions
                         self.smart_suggestions_active = !self.smart_suggestions_active;
+                    }
+                    ConfigField::PathSearchCheckbox => {
+                        // Toggle path search include shortcuts
+                        self.path_search_include_shortcuts = !self.path_search_include_shortcuts;
                     }
                     ConfigField::CountField => {
                         // Move to next field (Yes button) when Enter is pressed on TextArea
@@ -239,7 +253,7 @@ impl View for ConfigView {
     fn draw(&mut self, frame: &mut ratatui::Frame, modal_area: Rect, _active: bool) {
         let layout = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(7),
+            Constraint::Length(9),
             Constraint::Fill(1),
         ]);
         let chunks: [Rect; 3] = layout.areas(modal_area);
@@ -289,6 +303,7 @@ impl View for ConfigView {
         let content_layout = Layout::vertical([
             Constraint::Length(1), // Empty line at top
             Constraint::Length(1), // Checkbox line
+            Constraint::Length(1), // Path search checkbox line
             Constraint::Length(1), // TextArea (3 lines with border)
             Constraint::Length(1), // Empty line before buttons
             Constraint::Length(1), // Buttons
@@ -296,10 +311,11 @@ impl View for ConfigView {
         let [
             _top_spacer,
             checkbox_area,
+            path_search_area,
             count_area,
             _spacer3,
             buttons_area,
-        ]: [Rect; 5] = content_layout.areas(inner_area);
+        ]: [Rect; 6] = content_layout.areas(inner_area);
 
         // Render checkbox with highlighting if selected
         let checkbox_style = if self.selected_field == ConfigField::Checkbox {
@@ -312,6 +328,24 @@ impl View for ConfigView {
         };
         let checkbox = Paragraph::new(checkbox_text).style(checkbox_style);
         frame.render_widget(checkbox, checkbox_area);
+
+        // Render path search checkbox
+        let path_checkbox_symbol = if self.path_search_include_shortcuts {
+            "[X]"
+        } else {
+            "[ ]"
+        };
+        let path_checkbox_text = format!("{}  Include shortcuts in path search", path_checkbox_symbol);
+        let path_checkbox_style = if self.selected_field == ConfigField::PathSearchCheckbox {
+            config_lock
+                .styles
+                .text_style
+                .add_modifier(Modifier::REVERSED)
+        } else {
+            config_lock.styles.text_style
+        };
+        let path_checkbox = Paragraph::new(path_checkbox_text).style(path_checkbox_style);
+        frame.render_widget(path_checkbox, path_search_area);
 
         // Render count field as formatted text [XX] message
         if let Some(count_textarea) = &self.count_textarea {
