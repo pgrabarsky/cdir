@@ -40,6 +40,7 @@ struct ModalEntry {
 pub struct ViewManager {
     tx: broadcast::Sender<GenericEvent>,
 
+    term_size: RefCell<Option<(u16, u16)>>,
     views: RefCell<Vec<Rc<RefCell<ManagedView>>>>,
     top_level_view_idx: RefCell<usize>,
 
@@ -64,6 +65,7 @@ impl ViewManager {
     pub fn new() -> ViewManager {
         ViewManager {
             tx: broadcast::channel::<GenericEvent>(16).0,
+            term_size: RefCell::new(None),
             views: RefCell::new(vec![]),
             top_level_view_idx: RefCell::new(0),
             receive_events_views: RefCell::new(vec![]),
@@ -230,6 +232,7 @@ impl ViewManager {
 
     pub fn resize(&self, columns: u16, rows: u16) {
         trace!("ViewManager resize to {}x{}", columns, rows);
+        self.term_size.replace(Some((columns, rows)));
         let area = Rect::new(0, 0, columns, rows);
         for mv in self.views.borrow().iter() {
             let mut managed_view = mv.borrow_mut();
@@ -707,8 +710,18 @@ impl ViewManager {
                     // the given columns and rows, because the terminal size has not yet
                     // been updated.
                     debug!("received resize event: col='{}' row='{}'", columns, rows);
+
+                    // if the self.term_size is already up to date, no need to take some actions
+                    if let Some((w, h)) = *self.term_size.borrow()
+                        && w == columns
+                        && h == rows
+                    {
+                        debug!("terminal size is already up to date, skipping resize");
+                        return ManagerAction::new(false);
+                    }
+
                     self.resize(columns, rows);
-                    manager_action.redraw = true;
+                    manager_action.redraw = true; // we need a redraw to apply the new size
                     manager_action.resize = false; // prevent the main loop to wrongly apply a resize
                 }
                 Event::Mouse(mouse_event) => {
@@ -802,9 +815,16 @@ impl ViewManager {
             }
             if manager_action.redraw() {
                 debug!("ViewManager redrawing");
-                let _ = term.draw(|frame| {
-                    self.draw(frame);
-                });
+                let _ =
+                    term.draw(|frame| {
+                        if self.term_size.borrow().is_none_or(|(w, h)| {
+                            w != frame.area().width || h != frame.area().height
+                        }) {
+                            // the term can have been resized since last resize event, so it might be needed to resize the views
+                            self.resize(frame.area().width, frame.area().height);
+                        }
+                        self.draw(frame);
+                    });
             }
         }
         let mut stdout = std::io::stdout();
