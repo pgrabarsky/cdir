@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use crossterm::event::{KeyCode, KeyEvent};
 use log::debug;
 use ratatui::{
@@ -8,17 +10,17 @@ use ratatui::{
 };
 
 use crate::{
-    theme::ThemeStyles,
+    config::Config,
     tui::{EventCaptured, ManagerAction, View, ViewBuilder},
 };
 
 pub struct Help {
-    styles: ThemeStyles,
+    config: Arc<Mutex<Config>>,
 }
 
 impl Help {
-    pub fn builder(styles: ThemeStyles) -> ViewBuilder {
-        ViewBuilder::from(Box::new(Self { styles }))
+    pub fn builder(config: Arc<Mutex<Config>>) -> ViewBuilder {
+        ViewBuilder::from(Box::new(Self { config }))
     }
 }
 
@@ -41,19 +43,20 @@ impl View for Help {
             Constraint::Length(19),
             Constraint::Fill(1),
         ]);
-        let chunks = layout.split(modal_area);
+        let chunks: [Rect; 3] = layout.areas(modal_area);
         let center_layout = Layout::horizontal([
             Constraint::Fill(1),
             Constraint::Length(100),
             Constraint::Fill(1),
         ]);
-        let chunks = center_layout.split(chunks[1]);
+        let chunks: [Rect; 3] = center_layout.areas(chunks[1]);
         let modal_area = chunks[1];
 
         frame.render_widget(Clear, modal_area);
 
-        let ts = self.styles.text_style;
-        let es = self.styles.text_em_style;
+        let styles = self.config.lock().unwrap().styles.clone();
+        let ts = styles.text_style;
+        let es = styles.text_em_style;
 
         let message = Paragraph::new(vec![
         Line::from(vec![
@@ -120,6 +123,11 @@ impl View for Help {
             Span::styled("ctrl+h", es),
             Span::styled(" for the help screen.", ts),
         ]),
+        Line::from(vec![
+            Span::styled("Use ", ts),
+            Span::styled("F12", es),
+            Span::styled(" to open the configuration view.", ts),
+        ]),
         Line::from(""),
         Line::from(vec![Span::styled("Enter a text to filter.", ts)]),
         Line::from(""),
@@ -132,12 +140,12 @@ impl View for Help {
     .block(
         Block::default()
             .padding(Padding::new(1, 1, 1, 1))
-            .title(Span::styled(" cdir help ", self.styles.title_style))
+            .title(Span::styled(" cdir help ", styles.title_style))
             .borders(Borders::ALL)
     );
 
         // Fill the frame with the background color if defined
-        if let Some(bg_color) = &self.styles.background_color {
+        if let Some(bg_color) = &styles.background_color {
             let background = Paragraph::new("").style(Style::default().bg(*bg_color));
             frame.render_widget(background, modal_area);
         }

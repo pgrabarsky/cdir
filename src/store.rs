@@ -1,7 +1,7 @@
 use std::{
     fmt, fs,
     rc::Rc,
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -167,7 +167,7 @@ impl SmartRanker {
 /// db_conn: the SQLite database connection
 pub(crate) struct Store {
     db_conn: Rc<Connection>,
-    config: Arc<Config>,
+    config: Arc<Mutex<Config>>,
 }
 
 impl Store {
@@ -178,7 +178,7 @@ impl Store {
     ///
     /// ### Returns
     /// a new Store instance
-    pub(crate) fn new(dir_path: &std::path::Path, config: Arc<Config>) -> Store {
+    pub(crate) fn new(dir_path: &std::path::Path, config: Arc<Mutex<Config>>) -> Store {
         info!("db file={}", dir_path.display());
 
         if !dir_path.exists()
@@ -472,7 +472,7 @@ impl Store {
 
         trace!("Scoring path '{}' initial score={:?}", path.path, max_score);
 
-        if !self.config.path_search_include_shortcuts {
+        if !self.config.lock().unwrap().path_search_include_shortcuts {
             return max_score;
         }
 
@@ -583,7 +583,7 @@ impl Store {
             // Find shortcuts where name or description matches the like_text
             let like_lower = like_text.to_lowercase();
 
-            if self.config.path_search_include_shortcuts {
+            if self.config.lock().unwrap().path_search_include_shortcuts {
                 let matching_shortcut_paths: Vec<&str> = shortcuts
                     .iter()
                     .filter(|s| {
@@ -643,14 +643,15 @@ impl Store {
         let mut len = len;
 
         let mut smart_rows = vec![];
-        if self.config.smart_suggestions_active && like_text.is_empty() {
+        if self.config.lock().unwrap().smart_suggestions_active && like_text.is_empty() {
             // get current working directory
             let cwd = std::env::current_dir().unwrap();
+            let config_lock = self.config.lock().unwrap();
             smart_rows = self
                 .list_path_history_smart_suggestions(
                     cwd.to_str().unwrap(),
-                    self.config.smart_suggestions_depth,
-                    self.config.smart_suggestions_count,
+                    config_lock.smart_suggestions_depth,
+                    config_lock.smart_suggestions_count,
                     shortcuts,
                 )
                 .unwrap();
@@ -1228,7 +1229,7 @@ impl Store {
     pub(crate) fn setup_test_store() -> Store {
         let store = Store {
             db_conn: Rc::from(Connection::open_in_memory().unwrap()),
-            config: Arc::new(Config::default()),
+            config: Arc::new(Mutex::new(Config::default())),
         };
         store.init_schema();
         store

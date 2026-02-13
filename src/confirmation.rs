@@ -73,14 +73,14 @@ impl View for Confirmation {
             width: modal_area.width - 2,
             height: modal_area.height - 2,
         };
-        let vchunks = Layout::default()
+        let vchunks: [Rect; 3] = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(1), // title (empty, since Block has title)
                 Constraint::Fill(2),   // message
                 Constraint::Length(1), // buttons
             ])
-            .split(inner);
+            .areas(inner);
 
         // Multi-line message in the middle, centered
         let message_height = vchunks[1].height as usize;
@@ -98,14 +98,14 @@ impl View for Confirmation {
         frame.render_widget(msg, vchunks[1]);
 
         // Buttons at the bottom
-        let button_layout = Layout::default()
+        let button_layout: [Rect; 3] = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
                 Constraint::Length(10),
                 Constraint::Fill(1),
                 Constraint::Length(10),
             ])
-            .split(vchunks[2]);
+            .areas(vchunks[2]);
         let yes_style = if self.selected == ConfirmationButton::Yes {
             Style::default()
                 .fg(Color::Black)

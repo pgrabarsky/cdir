@@ -1,12 +1,22 @@
-use std::{env, fs, io::Write, path::PathBuf};
+use std::{
+    env, fs,
+    io::Write,
+    path::PathBuf,
+    sync::{Arc, OnceLock},
+};
 
 use chrono::{DateTime, Local};
 use log::{debug, error, info, trace};
 use serde::{Deserialize, Serialize};
+use serde_yaml::Value;
+use yamlpatch::{Op, Patch, apply_yaml_patches};
+use yamlpath::route;
 
 use crate::theme::{Theme, ThemeStyles};
 
 pub(crate) const CDIR_CONFIG_VAR: &str = "CDIR_CONFIG";
+
+static CONFIG_FILE_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 const DEFAULT_DB_PATH: fn() -> Option<PathBuf> = || {
     let mut path = dirs::data_dir().unwrap();
@@ -41,8 +51,8 @@ const DEFAULT_THEME: fn() -> Option<String> = || Some(String::from("default"));
 
 const DEFAULT_COLORS: fn() -> Theme = || serde_yaml::from_str("").unwrap();
 
-const DEFAULT_DATE_FORMATER: fn() -> Box<dyn Fn(i64) -> String> =
-    || Box::from(|_| String::from(""));
+const DEFAULT_DATE_FORMATER: fn() -> Arc<dyn Fn(i64) -> String + Send + Sync> =
+    || Arc::from(|_| String::from(""));
 
 const DEFAULT_NONE: fn() -> Option<String> = || None;
 
@@ -99,12 +109,8 @@ pub struct Config {
     pub styles: ThemeStyles,
 
     #[serde(skip, default = "DEFAULT_DATE_FORMATER")]
-    pub date_formater: Box<dyn Fn(i64) -> String>,
+    pub date_formater: Arc<dyn Fn(i64) -> String + Send + Sync>,
 }
-
-// Not really true, but good enough for our use case as it is the case after initialization (immutable config)
-unsafe impl Send for Config {}
-unsafe impl Sync for Config {}
 
 impl Config {
     fn build_config_file_path(config_file_path: Option<PathBuf>) -> PathBuf {
@@ -125,7 +131,7 @@ impl Config {
         path
     }
 
-    pub fn load(config_file_path: Option<PathBuf>) -> Result<Config, String> {
+    pub fn initialize_and_load(config_file_path: Option<PathBuf>) -> Result<Config, String> {
         let path = Self::build_config_file_path(config_file_path);
 
         if !path.exists() {
@@ -133,6 +139,12 @@ impl Config {
             Self::install_themes(path.clone());
         }
 
+        CONFIG_FILE_PATH.get_or_init(|| path.clone());
+
+        Self::load(path)
+    }
+
+    pub fn load(path: PathBuf) -> Result<Config, String> {
         let file = std::fs::File::open(path.clone());
 
         match serde_yaml::from_reader(file.unwrap()) {
@@ -148,7 +160,7 @@ impl Config {
         self.styles = ThemeStyles::from(&actual_theme);
 
         let date_format = self.date_format.clone();
-        self.date_formater = Box::from(move |s: i64| {
+        self.date_formater = Arc::from(move |s: i64| {
             DateTime::from_timestamp(s, 0)
                 .unwrap()
                 .with_timezone(&Local::now().timezone())
@@ -394,6 +406,88 @@ impl Config {
         std::fs::write(&theme_path, content)
             .unwrap_or_else(|_| panic!("Failed create the theme file {:?}", theme_path));
     }
+
+    // Save the configuration by applying a patch to the existing config file, to preserve comments and formatting as much as possible
+    pub(crate) fn save(&self) -> Result<(), String> {
+        info!("Saving configuration to {:?}", CONFIG_FILE_PATH.get());
+
+        let config_path = CONFIG_FILE_PATH
+            .get()
+            .ok_or_else(|| String::from("Config file path not initialized"))?
+            .clone();
+        let config_source = fs::read_to_string(&config_path)
+            .map_err(|e| format!("Failed to read config file {:?}: {}", config_path, e))?;
+        let document = yamlpath::Document::new(config_source.clone())
+            .map_err(|e| format!("Failed to parse config file {:?}: {}", config_path, e))?;
+
+        let config_from_file: Config = serde_yaml::from_str(&config_source)
+            .map_err(|e| format!("Failed to parse config file {:?}: {}", config_path, e))?;
+
+        let mut patches: Vec<Patch> = Vec::new();
+        let mut add_or_replace = |key: &str, value: Value| {
+            let key_owned = key.to_string();
+            let key_route = route!(key_owned.clone());
+            if document.query_exists(&key_route) {
+                patches.push(Patch {
+                    route: key_route,
+                    operation: Op::Replace(value),
+                });
+            } else {
+                patches.push(Patch {
+                    route: route!(),
+                    operation: Op::Add {
+                        key: key_owned,
+                        value,
+                    },
+                });
+            }
+        };
+
+        if config_from_file.smart_suggestions_active != self.smart_suggestions_active {
+            add_or_replace(
+                "smart_suggestions_active",
+                Value::Bool(self.smart_suggestions_active),
+            );
+        }
+
+        if config_from_file.smart_suggestions_count != self.smart_suggestions_count {
+            add_or_replace(
+                "smart_suggestions_count",
+                Value::Number(serde_yaml::Number::from(
+                    self.smart_suggestions_count as u64,
+                )),
+            );
+        }
+
+        if config_from_file.smart_suggestions_depth != self.smart_suggestions_depth {
+            add_or_replace(
+                "smart_suggestions_depth",
+                Value::Number(serde_yaml::Number::from(
+                    self.smart_suggestions_depth as u64,
+                )),
+            );
+        }
+
+        if config_from_file.path_search_include_shortcuts != self.path_search_include_shortcuts {
+            add_or_replace(
+                "path_search_include_shortcuts",
+                Value::Bool(self.path_search_include_shortcuts),
+            );
+        }
+
+        if patches.is_empty() {
+            return Ok(());
+        }
+
+        let updated_document = apply_yaml_patches(&document, &patches)
+            .map_err(|e| format!("Failed to apply config patch {:?}: {}", config_path, e))?;
+        let updated_source = updated_document.source().to_string();
+
+        fs::write(&config_path, updated_source)
+            .map_err(|e| format!("Failed to write config file {:?}: {}", config_path, e))?;
+
+        Ok(())
+    }
 }
 
 impl Default for Config {
@@ -410,7 +504,7 @@ impl Default for Config {
             smart_suggestions_depth: DEFAULT_SMART_SUGGESTIONS_DEPTH(),
             smart_suggestions_count: DEFAULT_SMART_SUGGESTIONS_COUNT(),
             themes_directory_path: Default::default(),
-            date_formater: Box::new(|date| date.to_string()),
+            date_formater: Arc::new(|date| date.to_string()),
             db_path: Default::default(),
             log_config_path: Default::default(),
             path_search_include_shortcuts: true,
@@ -439,7 +533,7 @@ impl Clone for Config {
             path_search_include_shortcuts: self.path_search_include_shortcuts,
             date_format: self.date_format.clone(),
             // Provide a new default closure for date_formater
-            date_formater: Box::new(|date| date.to_string()),
+            date_formater: Arc::new(|date| date.to_string()),
         }
     }
 }

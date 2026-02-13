@@ -14,6 +14,7 @@ use ratatui::{
 
 use crate::{
     config::Config,
+    config_view::ConfigView,
     help::Help,
     history_view_container::HistoryViewContainer,
     search_text_view::SearchTextState,
@@ -229,7 +230,7 @@ impl Gui {
 
     /// Return a function that formats a row for the history view
     fn build_format_history_row_builder(
-        config: Arc<Config>,
+        config: Arc<Mutex<Config>>,
         table_view_state: Arc<Mutex<TableViewState>>,
     ) -> RowifyFn<store::Path> {
         let table_view_state = table_view_state.clone();
@@ -240,25 +241,24 @@ impl Gui {
                 .iter()
                 .map(move |path| {
                     let path_init = path.clone();
+                    let config_lock = config.lock().unwrap();
                     // format the date
                     let date: Line = if !path_init.smart_path {
                         Line::from(
-                            Span::from((config.date_formater)(path_init.date))
-                                .style(config.styles.date_style),
+                            Span::from((config_lock.date_formater)(path_init.date))
+                                .style(config_lock.styles.date_style),
                         )
                     } else {
                         Line::from(
                             Span::from("                 @ ")
-                                .style(config.styles.date_style /*.bg(bgc)*/),
+                                .style(config_lock.styles.date_style /*.bg(bgc)*/),
                         )
                     };
 
                     // format the path using the embedded shortcut
                     let shortened_line =
                         match table_view_state.lock().unwrap().display_with_shortcuts {
-                            true => {
-                                Self::shorten_path_for_path(config.as_ref(), &path_init, size[1])
-                            }
+                            true => Self::shorten_path_for_path(&config_lock, &path_init, size[1]),
                             false => None,
                         };
                     let path = shortened_line
@@ -266,10 +266,10 @@ impl Gui {
                             Self::reduce_path(
                                 path_init.path,
                                 size[1],
-                                config.styles.home_tilde_style,
+                                config_lock.styles.home_tilde_style,
                             )
                         })
-                        .style(config.styles.path_style);
+                        .style(config_lock.styles.path_style);
                     let path = if path_init.smart_path {
                         path.style(Style::default().add_modifier(Modifier::ITALIC)) //.bg(bgc))
                     } else {
@@ -287,7 +287,7 @@ impl Gui {
         &mut self,
         view_manager: Rc<ViewManager>,
         store: Store,
-        config: Arc<Config>,
+        config: Arc<Mutex<Config>>,
         search_text_state: Arc<Mutex<SearchTextState>>,
     ) {
         self.history_view_container = Some(HistoryViewContainer::builder(
@@ -321,7 +321,7 @@ impl Gui {
     /// Return a function that formats a row for the history view
     fn build_format_shortcut_row_builder(
         store: Store,
-        config: Arc<Config>,
+        config: Arc<Mutex<Config>>,
         table_view_state: Arc<Mutex<TableViewState>>,
     ) -> RowifyFn<store::Shortcut> {
         let table_view_state = table_view_state.clone();
@@ -333,13 +333,14 @@ impl Gui {
                 .map(|shortcut| {
                     // format the path
                     let shortcut = shortcut.clone();
+                    let config_lock = config.lock().unwrap();
                     let shortened_line =
                         match table_view_state.lock().unwrap().display_with_shortcuts {
                             true => {
                                 let all_shortcuts: Vec<Shortcut> =
                                     store.list_all_shortcuts().unwrap();
                                 Self::shorten_path_for_shortcut(
-                                    config.as_ref(),
+                                    &config_lock,
                                     &all_shortcuts,
                                     &shortcut.path,
                                     size[1],
@@ -352,15 +353,15 @@ impl Gui {
                             Self::reduce_path(
                                 shortcut.path,
                                 size[1],
-                                config.styles.home_tilde_style,
+                                config_lock.styles.home_tilde_style,
                             )
                         })
-                        .style(config.styles.path_style);
+                        .style(config_lock.styles.path_style);
 
                     Row::new(vec![
                         Line::from(
                             Span::from(shortcut.name.clone())
-                                .style(config.styles.shortcut_name_style),
+                                .style(config_lock.styles.shortcut_name_style),
                         ),
                         path,
                         Line::from(
@@ -369,7 +370,7 @@ impl Gui {
                                 .clone()
                                 .unwrap_or_else(|| "".to_string()),
                         )
-                        .style(config.styles.description_style),
+                        .style(config_lock.styles.description_style),
                     ])
                 })
                 .collect()
@@ -381,7 +382,7 @@ impl Gui {
         &mut self,
         view_manager: Rc<ViewManager>,
         store: Store,
-        config: Arc<Config>,
+        config: Arc<Mutex<Config>>,
         search_text_state: Arc<Mutex<SearchTextState>>,
     ) {
         let modal_store = store.clone();
@@ -432,7 +433,7 @@ impl Gui {
     }
 
     /// Instantiate the application GUI
-    fn new(view_manager: Rc<ViewManager>, store: store::Store, config: Arc<Config>) -> Gui {
+    fn new(view_manager: Rc<ViewManager>, store: store::Store, config: Arc<Mutex<Config>>) -> Gui {
         let mut gui = Gui {
             table_view_state: Arc::new(Mutex::new(TableViewState::new())),
             history_view_container: None,
@@ -472,15 +473,30 @@ impl Gui {
 }
 
 /// Launch the GUI. Returns the selected path or None if the user quit.
-pub(crate) async fn gui(store: store::Store, config: Arc<Config>) -> Option<String> {
+pub(crate) async fn gui(store: store::Store, config: Arc<Mutex<Config>>) -> Option<String> {
     debug!("gui");
-    let mut view_manager: Rc<ViewManager> = Rc::new(ViewManager::new());
 
-    if let Some(vm) = Rc::get_mut(&mut view_manager) {
-        let config = config.clone();
-        vm.set_global_help_view(Box::new(move || Help::builder(config.styles.clone())))
+    let view_manager: Rc<ViewManager> = Rc::new(ViewManager::new());
+
+    {
+        // Set the global help view
+        let config1 = config.clone();
+        let help_builder = Box::new(move || Help::builder(config1.clone()));
+        view_manager.set_global_help_view(help_builder);
     }
 
-    let mut gui = Gui::new(view_manager.clone(), store, config);
-    gui.run(view_manager).await
+    {
+        // Set the global config view
+        let config2 = config.clone();
+        let view_manager2 = view_manager.clone();
+        let config_builder =
+            Box::new(move || ConfigView::builder(view_manager2.clone(), config2.clone()));
+        view_manager.set_global_config_view(config_builder);
+    }
+
+    {
+        // Launch the GUI
+        let mut gui = Gui::new(view_manager.clone(), store, config);
+        gui.run(view_manager).await
+    }
 }

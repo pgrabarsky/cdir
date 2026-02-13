@@ -9,6 +9,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 
 use crate::{
     config::Config,
+    config_button::ConfigButton,
     list_indicator_view::ListIndicatorView,
     model::ListFunction,
     search_text_view::{SearchTextState, SearchTextView},
@@ -19,7 +20,8 @@ use crate::{
 
 const PATH_HISTORY_VIEW_ID: u16 = 0;
 const SEARCH_TEXT_VIEW_1: u16 = 1;
-const LIST_INDICATOR_VIEW: u16 = 2;
+const CONFIGURATION_VIEW: u16 = 2;
+const LIST_INDICATOR_VIEW: u16 = 3;
 
 pub struct HistoryViewContainer {}
 
@@ -31,7 +33,7 @@ impl HistoryViewContainer {
         list_fn: Box<ListFunction<Path>>,
         rowify: RowifyFn<Path>,
         stringify: fn(&Path) -> String,
-        config: Arc<Config>,
+        config: Arc<Mutex<Config>>,
         view_state: Arc<Mutex<TableViewState>>,
         delete_fn: DeleteFn<Path>,
         editor_modal_view_builder: Option<EditorViewBuilder<Path>>,
@@ -41,7 +43,7 @@ impl HistoryViewContainer {
             .child(
                 PATH_HISTORY_VIEW_ID,
                 TableView::builder(
-                    vm,
+                    vm.clone(),
                     "path".to_string(),
                     column_names,
                     column_constraints,
@@ -61,8 +63,12 @@ impl HistoryViewContainer {
                 SearchTextView::builder(config.clone(), search_text_state.clone()),
             )
             .child(
+                CONFIGURATION_VIEW,
+                ConfigButton::builder(vm.clone(), config.clone()),
+            )
+            .child(
                 LIST_INDICATOR_VIEW,
-                ListIndicatorView::builder(config.clone(), "path".to_string()),
+                ListIndicatorView::builder(vm.clone(), config.clone(), "path".to_string()),
             )
     }
 }
@@ -74,14 +80,20 @@ impl View for HistoryViewContainer {
         let vertical = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).spacing(0);
         let [main, bottom] = vertical.areas(area);
 
-        let horizontal =
-            Layout::horizontal([Constraint::Fill(1), Constraint::Length(14)]).spacing(0);
-        let [search_text_area, right] = horizontal.areas(bottom);
+        let horizontal = Layout::horizontal([
+            Constraint::Fill(1),
+            Constraint::Length(14),
+            Constraint::Length(1),
+            Constraint::Length(12),
+        ])
+        .spacing(0);
+        let [search_text_area, list_indicator_rect, _, config_rect] = horizontal.areas(bottom);
 
         vec![
             (PATH_HISTORY_VIEW_ID, main),
             (SEARCH_TEXT_VIEW_1, search_text_area),
-            (LIST_INDICATOR_VIEW, right),
+            (LIST_INDICATOR_VIEW, list_indicator_rect),
+            (CONFIGURATION_VIEW, config_rect),
         ]
     }
     fn draw(&mut self, _frame: &mut ratatui::Frame, area: ratatui::prelude::Rect, active: bool) {
