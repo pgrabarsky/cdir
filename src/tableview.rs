@@ -218,6 +218,14 @@ impl<T: Clone + 'static> View for TableView<T> {
                 payload.search_string.as_str(),
                 payload.fuzzy_match,
             );
+            if self.data_model.entries.is_none() {
+                self.table_state.select_cell(None);
+            } else {
+                self.table_state.select_cell(Some((
+                    (self.find_focus_fn)(self.data_model.entries.as_ref().unwrap()),
+                    0,
+                )));
+            }
 
             let _ = self
                 .tx
