@@ -14,7 +14,10 @@ use crate::{
     model::ListFunction,
     search_text_view::{SearchTextState, SearchTextView},
     store::Path,
-    tableview::{DeleteFn, EditorViewBuilder, RowifyFn, TableView, TableViewState},
+    tableview::{
+        ColumnConstraintsFn, ColumnNamesFn, DeleteFn, EditorViewBuilder, RowifyFn, TableView,
+        TableViewState,
+    },
     tui::{EventCaptured, ManagerAction, View, ViewBuilder, ViewManager},
 };
 
@@ -28,8 +31,8 @@ pub struct HistoryViewContainer {}
 impl HistoryViewContainer {
     pub fn builder(
         vm: Rc<ViewManager>,
-        column_names: Vec<String>,
-        column_constraints: Vec<Constraint>,
+        column_names_fn: ColumnNamesFn,
+        column_constraints_fn: ColumnConstraintsFn,
         list_fn: Box<ListFunction<Path>>,
         rowify: RowifyFn<Path>,
         stringify: fn(&Path) -> String,
@@ -45,8 +48,8 @@ impl HistoryViewContainer {
                 TableView::builder(
                     vm.clone(),
                     "path".to_string(),
-                    column_names,
-                    column_constraints,
+                    column_names_fn,
+                    column_constraints_fn,
                     list_fn,
                     rowify,
                     stringify,

@@ -242,6 +242,12 @@ impl Gui {
                 .map(move |path| {
                     let path_init = path.clone();
                     let config_lock = config.lock().unwrap();
+                    let show_description = config_lock.path_view_show_shortcut_description_column;
+
+                    // Determine column indices based on whether description column is shown
+                    let path_col_idx = 1;
+                    let desc_col_idx = 2;
+
                     // format the date
                     let date: Line = if !path_init.smart_path {
                         Line::from(
@@ -258,14 +264,18 @@ impl Gui {
                     // format the path using the embedded shortcut
                     let shortened_line =
                         match table_view_state.lock().unwrap().display_with_shortcuts {
-                            true => Self::shorten_path_for_path(&config_lock, &path_init, size[1]),
+                            true => Self::shorten_path_for_path(
+                                &config_lock,
+                                &path_init,
+                                size[path_col_idx],
+                            ),
                             false => None,
                         };
                     let path = shortened_line
                         .unwrap_or_else(|| {
                             Self::reduce_path(
-                                path_init.path,
-                                size[1],
+                                path_init.path.clone(),
+                                size[path_col_idx],
                                 config_lock.styles.home_tilde_style,
                             )
                         })
@@ -275,7 +285,29 @@ impl Gui {
                     } else {
                         path
                     };
-                    vec![date, path]
+
+                    // Build the row based on whether description column is enabled
+                    if show_description {
+                        let description = path_init
+                            .shortcut
+                            .as_ref()
+                            .and_then(|s| s.description.as_ref())
+                            .map(|d| {
+                                let desc_str = if d.len() > size[desc_col_idx] as usize {
+                                    format!("{}...", &d[..size[desc_col_idx] as usize - 3])
+                                } else {
+                                    d.clone()
+                                };
+                                Line::from(
+                                    Span::from(desc_str)
+                                        .style(config_lock.styles.description_style),
+                                )
+                            })
+                            .unwrap_or_else(|| Line::from(""));
+                        vec![date, path, description]
+                    } else {
+                        vec![date, path]
+                    }
                 })
                 .map(Row::new)
                 .collect()
@@ -292,8 +324,28 @@ impl Gui {
     ) {
         self.history_view_container = Some(HistoryViewContainer::builder(
             view_manager.clone(),
-            vec!["date".to_string(), "path".to_string()],
-            vec![Constraint::Length(20), Constraint::Fill(1)],
+            Box::new(|config| {
+                if config.path_view_show_shortcut_description_column {
+                    vec![
+                        "date".to_string(),
+                        "path".to_string(),
+                        "description".to_string(),
+                    ]
+                } else {
+                    vec!["date".to_string(), "path".to_string()]
+                }
+            }),
+            Box::new(|config| {
+                if config.path_view_show_shortcut_description_column {
+                    vec![
+                        Constraint::Length(20),
+                        Constraint::Fill(config.path_view_path_column_weight as u16),
+                        Constraint::Fill(config.path_view_description_column_weight as u16),
+                    ]
+                } else {
+                    vec![Constraint::Length(20), Constraint::Fill(1)]
+                }
+            }),
             {
                 let store = store.clone();
                 Box::new(move |pos, len, text, fuzzy| store.list_paths(pos, len, text, fuzzy))
@@ -397,16 +449,20 @@ impl Gui {
 
         self.shortcut_view_container = Some(ShortcutViewContainer::builder(
             view_manager.clone(),
-            vec![
-                "shortcut".to_string(),
-                "path".to_string(),
-                "description".to_string(),
-            ],
-            vec![
-                Constraint::Length(20),
-                Constraint::Fill(1),
-                Constraint::Fill(1),
-            ],
+            Box::new(|_config| {
+                vec![
+                    "shortcut".to_string(),
+                    "path".to_string(),
+                    "description".to_string(),
+                ]
+            }),
+            Box::new(|_config| {
+                vec![
+                    Constraint::Length(20),
+                    Constraint::Fill(1),
+                    Constraint::Fill(1),
+                ]
+            }),
             {
                 let store = store.clone();
                 Box::new(move |pos, len, text, fuzzy| store.list_shortcuts(pos, len, text, fuzzy))
