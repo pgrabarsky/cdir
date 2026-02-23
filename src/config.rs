@@ -33,6 +33,10 @@ const DEFAULT_LOG_CONFIG_PATH: fn() -> Option<PathBuf> = || {
     Some(path)
 };
 
+const PATH_VIEW_PATH_COLUMN_WEIGHT: fn() -> usize = || 3;
+
+const PATH_VIEW_DESCRIPTION_COLUMN_WEIGHT: fn() -> usize = || 2;
+
 const DEFAULT_SMART_SUGGESTIONS_DEPTH: fn() -> usize = || 5;
 
 const DEFAULT_SMART_SUGGESTIONS_COUNT: fn() -> usize = || 3;
@@ -70,6 +74,15 @@ pub struct Config {
 
     #[serde(default = "DEFAULT_TRUE")]
     pub path_search_include_shortcuts: bool,
+
+    #[serde(default = "DEFAULT_TRUE")]
+    pub path_view_show_shortcut_description_column: bool,
+
+    #[serde(default = "PATH_VIEW_PATH_COLUMN_WEIGHT")]
+    pub path_view_path_column_weight: usize,
+
+    #[serde(default = "PATH_VIEW_DESCRIPTION_COLUMN_WEIGHT")]
+    pub path_view_description_column_weight: usize,
 
     #[serde(default = "DEFAULT_TRUE")]
     pub smart_suggestions_active: bool,
@@ -475,6 +488,15 @@ impl Config {
             );
         }
 
+        if config_from_file.path_view_show_shortcut_description_column
+            != self.path_view_show_shortcut_description_column
+        {
+            add_or_replace(
+                "path_view_show_shortcut_description_column",
+                Value::Bool(self.path_view_show_shortcut_description_column),
+            );
+        }
+
         if patches.is_empty() {
             return Ok(());
         }
@@ -500,6 +522,9 @@ impl Default for Config {
             inline_theme_dark: Default::default(),
             inline_theme_light: Default::default(),
             styles: Default::default(),
+            path_view_show_shortcut_description_column: true,
+            path_view_path_column_weight: PATH_VIEW_PATH_COLUMN_WEIGHT(),
+            path_view_description_column_weight: PATH_VIEW_DESCRIPTION_COLUMN_WEIGHT(),
             smart_suggestions_active: true,
             smart_suggestions_depth: DEFAULT_SMART_SUGGESTIONS_DEPTH(),
             smart_suggestions_count: DEFAULT_SMART_SUGGESTIONS_COUNT(),
@@ -524,6 +549,10 @@ impl Clone for Config {
             inline_theme_dark: self.inline_theme_dark.clone(),
             inline_theme_light: self.inline_theme_light.clone(),
             styles: self.styles.clone(),
+            path_view_show_shortcut_description_column: self
+                .path_view_show_shortcut_description_column,
+            path_view_path_column_weight: self.path_view_path_column_weight,
+            path_view_description_column_weight: self.path_view_description_column_weight,
             smart_suggestions_active: self.smart_suggestions_active,
             smart_suggestions_depth: self.smart_suggestions_depth,
             smart_suggestions_count: self.smart_suggestions_count,

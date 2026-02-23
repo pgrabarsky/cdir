@@ -25,6 +25,7 @@ use crate::{
 enum ConfigField {
     SmartSuggestionActiveCheckbox,
     PathSearchCheckbox,
+    PathViewDescriptionCheckbox,
     SmartSuggestionCountField,
     YesButton,
     CancelButton,
@@ -36,6 +37,7 @@ pub struct ConfigView {
     smart_suggestions_field: ConfigField,
     smart_suggestions_active: bool,
     path_search_include_shortcuts: bool,
+    path_view_show_description_column: bool,
     count_textarea: Option<TextArea<'static>>,
 }
 
@@ -47,6 +49,7 @@ impl ConfigView {
             smart_suggestions_field: ConfigField::SmartSuggestionActiveCheckbox,
             smart_suggestions_active: false,
             path_search_include_shortcuts: false,
+            path_view_show_description_column: false,
             count_textarea: None,
         }))
     }
@@ -59,6 +62,8 @@ impl ConfigView {
             );
             config.smart_suggestions_active = self.smart_suggestions_active;
             config.path_search_include_shortcuts = self.path_search_include_shortcuts;
+            config.path_view_show_shortcut_description_column =
+                self.path_view_show_description_column;
 
             // Save smart_suggestions_count from TextArea
             if let Some(textarea) = &self.count_textarea
@@ -102,6 +107,8 @@ impl View for ConfigView {
         if let Ok(config_lock) = self.config.lock() {
             self.smart_suggestions_active = config_lock.smart_suggestions_active;
             self.path_search_include_shortcuts = config_lock.path_search_include_shortcuts;
+            self.path_view_show_description_column =
+                config_lock.path_view_show_shortcut_description_column;
 
             // Initialize count textarea
             let mut count_textarea = TextArea::default();
@@ -145,7 +152,10 @@ impl View for ConfigView {
                     ConfigField::SmartSuggestionActiveCheckbox => {
                         ConfigField::SmartSuggestionCountField
                     }
-                    ConfigField::SmartSuggestionCountField => ConfigField::PathSearchCheckbox,
+                    ConfigField::SmartSuggestionCountField => {
+                        ConfigField::PathViewDescriptionCheckbox
+                    }
+                    ConfigField::PathViewDescriptionCheckbox => ConfigField::PathSearchCheckbox,
                     ConfigField::PathSearchCheckbox => ConfigField::YesButton,
                     ConfigField::YesButton => ConfigField::CancelButton,
                     ConfigField::CancelButton => ConfigField::SmartSuggestionActiveCheckbox,
@@ -158,7 +168,10 @@ impl View for ConfigView {
                     ConfigField::SmartSuggestionCountField => {
                         ConfigField::SmartSuggestionActiveCheckbox
                     }
-                    ConfigField::PathSearchCheckbox => ConfigField::SmartSuggestionCountField,
+                    ConfigField::PathViewDescriptionCheckbox => {
+                        ConfigField::SmartSuggestionCountField
+                    }
+                    ConfigField::PathSearchCheckbox => ConfigField::PathViewDescriptionCheckbox,
                     ConfigField::YesButton => ConfigField::PathSearchCheckbox,
                     ConfigField::CancelButton => ConfigField::YesButton,
                 };
@@ -186,6 +199,11 @@ impl View for ConfigView {
             {
                 self.path_search_include_shortcuts = !self.path_search_include_shortcuts;
             }
+            KeyCode::Char(' ')
+                if self.smart_suggestions_field == ConfigField::PathViewDescriptionCheckbox =>
+            {
+                self.path_view_show_description_column = !self.path_view_show_description_column;
+            }
             KeyCode::Enter => {
                 match self.smart_suggestions_field {
                     ConfigField::SmartSuggestionActiveCheckbox => {
@@ -195,6 +213,11 @@ impl View for ConfigView {
                     ConfigField::PathSearchCheckbox => {
                         // Toggle path search include shortcuts
                         self.path_search_include_shortcuts = !self.path_search_include_shortcuts;
+                    }
+                    ConfigField::PathViewDescriptionCheckbox => {
+                        // Toggle path view show description column
+                        self.path_view_show_description_column =
+                            !self.path_view_show_description_column;
                     }
                     ConfigField::SmartSuggestionCountField => {
                         // Move to next field (Yes button) when Enter is pressed on TextArea
@@ -261,7 +284,7 @@ impl View for ConfigView {
     fn draw(&mut self, frame: &mut ratatui::Frame, modal_area: Rect, _active: bool) {
         let layout = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(9),
+            Constraint::Length(10),
             Constraint::Fill(1),
         ]);
         let chunks: [Rect; 3] = layout.areas(modal_area);
@@ -310,9 +333,10 @@ impl View for ConfigView {
 
         let content_layout = Layout::vertical([
             Constraint::Length(1), // Empty line at top
-            Constraint::Length(1), // Checkbox line
-            Constraint::Length(1), // Path search checkbox line
-            Constraint::Length(1), // TextArea (3 lines with border)
+            Constraint::Length(1), // Smart suggestions active checkbox
+            Constraint::Length(1), // Smart suggestions count field
+            Constraint::Length(1), // Path view description checkbox
+            Constraint::Length(1), // Path search checkbox
             Constraint::Length(1), // Empty line before buttons
             Constraint::Length(1), // Buttons
         ]);
@@ -320,10 +344,11 @@ impl View for ConfigView {
             _top_spacer,
             suggestions_active_area,
             suggestions_count_area,
+            path_view_desc_area,
             path_search_area,
-            _spacer3,
+            _spacer,
             buttons_area,
-        ]: [Rect; 6] = content_layout.areas(inner_area);
+        ]: [Rect; 7] = content_layout.areas(inner_area);
 
         // Render checkbox with highlighting if selected
         let checkbox_style =
@@ -383,6 +408,29 @@ impl View for ConfigView {
         };
         let path_checkbox = Paragraph::new(path_checkbox_text).style(path_checkbox_style);
         frame.render_widget(path_checkbox, path_search_area);
+
+        // Render path view description checkbox
+        let path_view_desc_symbol = if self.path_view_show_description_column {
+            "[X]"
+        } else {
+            "[ ]"
+        };
+        let path_view_desc_text = format!(
+            "{}  Show description column in path view",
+            path_view_desc_symbol
+        );
+        let path_view_desc_style =
+            if self.smart_suggestions_field == ConfigField::PathViewDescriptionCheckbox {
+                config_lock
+                    .styles
+                    .text_style
+                    .add_modifier(Modifier::REVERSED)
+            } else {
+                config_lock.styles.text_style
+            };
+        let path_view_desc_checkbox =
+            Paragraph::new(path_view_desc_text).style(path_view_desc_style);
+        frame.render_widget(path_view_desc_checkbox, path_view_desc_area);
 
         // Render buttons at the bottom
         let button_layout: [Rect; 3] = Layout::default()

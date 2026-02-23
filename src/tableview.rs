@@ -44,6 +44,12 @@ pub type EditorViewBuilder<T> = Box<dyn Fn(T) -> Box<ViewBuilder>>;
 /// A function type that searches a collection of T to find the index to focus on
 pub type FindFocusFn<T> = Box<dyn Fn(&[T]) -> usize>;
 
+/// A function type that returns column names based on configuration
+pub type ColumnNamesFn = Box<dyn Fn(&Config) -> Vec<String>>;
+
+/// A function type that returns column constraints based on configuration
+pub type ColumnConstraintsFn = Box<dyn Fn(&Config) -> Vec<Constraint>>;
+
 pub struct TableViewState {
     pub display_with_shortcuts: bool,
 }
@@ -61,12 +67,13 @@ pub struct TableView<T: Clone> {
     vm: Rc<ViewManager>,
     tx: broadcast::Sender<GenericEvent>,
     data_model: DataViewModel<T>,
-    column_names: Vec<String>,
-    column_constraints: Vec<Constraint>,
+    column_names_fn: ColumnNamesFn,
+    column_constraints_fn: ColumnConstraintsFn,
     table_state: TableState,
     table_rows_count: u16, // Number of lines in the table, excluding header & footer
     rowify: RowifyFn<T>,
     stringify: fn(&T) -> String,
+    config: Arc<Mutex<Config>>,
     styles: ThemeStyles,
     view_state: Arc<Mutex<TableViewState>>,
     delete_fn: DeleteFn<T>,
@@ -248,7 +255,8 @@ impl<T: Clone + 'static> TableView<T> {
     /// Create a ViewBuilder for a new TableView instance.
     ///
     /// ### Parameters
-    /// - `column_names`: A vector of strings representing the names of the table columns.
+    /// - `column_names_fn`: A boxed closure that returns the column names based on configuration
+    /// - `column_constraints_fn`: A boxed closure that returns the column constraints based on configuration
     /// - `list_fn`: A boxed function that lists items of type T from the store
     /// - `rowify`: A boxed function that converts a vector of items of type T into a vector of table rows.
     /// - `stringify`: A function that converts an item of type T into a string
@@ -262,8 +270,8 @@ impl<T: Clone + 'static> TableView<T> {
     pub fn builder(
         vm: Rc<ViewManager>,
         objects_type: String,
-        column_names: Vec<String>,
-        column_constraints: Vec<Constraint>,
+        column_names_fn: ColumnNamesFn,
+        column_constraints_fn: ColumnConstraintsFn,
         list_fn: Box<ListFunction<T>>,
         rowify: RowifyFn<T>,
         stringify: fn(&T) -> String,
@@ -278,12 +286,13 @@ impl<T: Clone + 'static> TableView<T> {
             vm: vm.clone(),
             tx: vm.tx(),
             data_model: DataViewModel::new(objects_type, vm.tx(), list_fn, false),
-            column_names,
-            column_constraints,
+            column_names_fn,
+            column_constraints_fn,
             table_state: TableState::default(),
             table_rows_count: 0,
             rowify,
             stringify,
+            config,
             styles,
             view_state,
             delete_fn,
@@ -487,8 +496,13 @@ impl<T: Clone + 'static> TableView<T> {
             self.data_model.first, self.data_model.length
         );
 
+        let config_lock = self.config.lock().unwrap();
+        let column_constraints = (self.column_constraints_fn)(&config_lock);
+        let column_names = (self.column_names_fn)(&config_lock);
+        drop(config_lock);
+
         let actual_width = Self::resolve_column_widths(
-            &self.column_constraints,
+            &column_constraints,
             area.width - TABLE_HIGHLIGHT_SYMBOL.len() as u16 - TABLE_COLUMN_SPACING * 2,
         );
         debug!("area widht={} col_width={:?}", area.width, actual_width);
@@ -499,9 +513,9 @@ impl<T: Clone + 'static> TableView<T> {
             .as_ref()
             .map_or(vec![], |entries| (self.rowify)(entries, &actual_width));
 
-        let table = Table::new(rows, self.column_constraints.clone())
+        let table = Table::new(rows, column_constraints)
             .header(
-                Row::new(self.column_names.clone()).style(
+                Row::new(column_names).style(
                     Style::new()
                         .bg(self.styles.header_bg_color.unwrap())
                         .fg(self.styles.header_fg_color.unwrap())

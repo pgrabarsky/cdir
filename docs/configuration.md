@@ -218,6 +218,62 @@ The search can be restricted to the actual path only by setting the following pa
 path_search_include_shortcuts: false
 ```
 
+## Path history view
+
+### Shortcut description column
+
+By default, the path history view displays a description column showing the description of the shortcut associated with each path (when available).
+
+This column can be hidden by setting the following parameter to `false`:
+
+```yaml
+path_view_show_shortcut_description_column: false
+```
+
+When enabled (default), the history view displays three columns:
+- **Date**: When the path was visited
+- **Path**: The directory path (with shortcut notation if available)
+- **Description**: The description of the shortcut used to display the path
+
+When disabled, only the date and path columns are shown.
+
+### Column width distribution
+
+When the description column is enabled, you can control how the available space is distributed between the path and description columns using weight values.
+
+```yaml
+path_view_path_column_weight: 3          # Default: 3
+path_view_description_column_weight: 2   # Default: 2
+```
+
+The weights determine the relative size of each column:
+- **path_view_path_column_weight**: Weight for the path column (default: 3)
+- **path_view_description_column_weight**: Weight for the description column (default: 2)
+
+With the default values (3:2), the path column takes 60% of the available space and the description column takes 40%.
+
+**Examples:**
+
+Equal distribution (50/50):
+```yaml
+path_view_path_column_weight: 1
+path_view_description_column_weight: 1
+```
+
+More space for path (75/25):
+```yaml
+path_view_path_column_weight: 3
+path_view_description_column_weight: 1
+```
+
+More space for description (40/60):
+```yaml
+path_view_path_column_weight: 2
+path_view_description_column_weight: 3
+```
+
+Note: These weights only apply when `path_view_show_shortcut_description_column` is `true`. The date column always has a fixed width of 20 characters.
+
 ## Date format
 
 The date format can be customized using the `date_format` option in the configuration file.

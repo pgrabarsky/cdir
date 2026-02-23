@@ -17,6 +17,29 @@ log_config_path: __CONFIG_PATH__/log4rs.yaml
 # path_search_include_shortcuts: false
 
 # ------------------------------------
+# Path history view settings
+# ------------------------------------
+
+# Show a separate column for shortcut descriptions in the path history view.
+# When enabled, adds a "description" column showing the description of the
+# shortcut used to display each path (if available).
+#
+# Default: true
+#
+# path_view_show_shortcut_description_column: true
+
+# Control how available space is distributed between path and description columns
+# when the description column is enabled. These are weight values (not percentages).
+#
+# With defaults (3:2), path gets 60% and description gets 40% of available space.
+# The date column always has a fixed width of 20 characters.
+#
+# Default: 3 for path, 2 for description
+#
+# path_view_path_column_weight: 3
+# path_view_description_column_weight: 2
+
+# ------------------------------------
 
 # Theme
 # These ones are provided by default (check your "themes" directory):

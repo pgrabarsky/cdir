@@ -14,7 +14,10 @@ use crate::{
     model::ListFunction,
     search_text_view::{SearchTextState, SearchTextView},
     store::Shortcut,
-    tableview::{DeleteFn, EditorViewBuilder, RowifyFn, TableView, TableViewState},
+    tableview::{
+        ColumnConstraintsFn, ColumnNamesFn, DeleteFn, EditorViewBuilder, RowifyFn, TableView,
+        TableViewState,
+    },
     tui::{EventCaptured, ManagerAction, View, ViewBuilder, ViewManager},
 };
 
@@ -28,8 +31,8 @@ pub struct ShortcutViewContainer {}
 impl ShortcutViewContainer {
     pub fn builder(
         vm: Rc<ViewManager>,
-        column_names: Vec<String>,
-        column_constraints: Vec<Constraint>,
+        column_names_fn: ColumnNamesFn,
+        column_constraints_fn: ColumnConstraintsFn,
         list_fn: Box<ListFunction<Shortcut>>,
         rowify: RowifyFn<Shortcut>,
         stringify: fn(&Shortcut) -> String,
@@ -45,8 +48,8 @@ impl ShortcutViewContainer {
                 TableView::builder(
                     vm.clone(),
                     "shortcut".to_string(),
-                    column_names,
-                    column_constraints,
+                    column_names_fn,
+                    column_constraints_fn,
                     list_fn,
                     rowify,
                     stringify,
