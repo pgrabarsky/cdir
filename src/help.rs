@@ -40,13 +40,13 @@ impl View for Help {
 
         let layout = Layout::vertical([
             Constraint::Fill(1),
-            Constraint::Length(19),
+            Constraint::Length(18),
             Constraint::Fill(1),
         ]);
         let chunks: [Rect; 3] = layout.areas(modal_area);
         let center_layout = Layout::horizontal([
             Constraint::Fill(1),
-            Constraint::Length(100),
+            Constraint::Length(74),
             Constraint::Fill(1),
         ]);
         let chunks: [Rect; 3] = center_layout.areas(chunks[1]);
@@ -59,90 +59,80 @@ impl View for Help {
         let es = styles.text_em_style;
 
         let message = Paragraph::new(vec![
-        Line::from(vec![
-            Span::styled("Use ", ts),
-            Span::styled("tab", es),
-            Span::styled(" to switch between the views.", ts),
-        ]),
-        Line::from(vec![
-            Span::styled("Use ", ts),
-            Span::styled("enter", es),
-            Span::styled(" to exit the GUI and go into the selected directory;", ts),
-        ]),
-        Line::from(vec![
-            Span::styled("Use ", ts),
-            Span::styled("esc or ctrl+q", es),
-            Span::styled(" to simply exit and stay in the current directory.", ts),
-        ]),
-        Line::from(vec![
-            Span::styled("Use the ", ts),
-            Span::styled("up", es),
-            Span::styled(" and ", ts),
-            Span::styled("down", es),
-            Span::styled(" arrow keys to select a directory (", ts),
-            Span::styled("shift", es),
-            Span::styled(" for bigger jumps);", ts),
-        ]),
-        Line::from(vec![
-            Span::styled("Use ", ts),
-            Span::styled("page up", es),
-            Span::styled(" and ", ts),
-            Span::styled("page down", es),
-            Span::styled(" to scroll through the list by page;", ts),
-        ]),
-        Line::from(vec![
-            Span::styled("Use ", ts),
-            Span::styled("home", es),
-            Span::styled(
-                " to go to the most recent directory in the history (the top);",
-                ts,
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled("Use ", ts),
-            Span::styled("ctrl+a", es),
-            Span::styled(" to see the full directory path without shortcuts, or switch back to shortcut usage.", ts),
-        ]),
-        Line::from(vec![
-            Span::styled("Use ", ts),
-            Span::styled("ctrl+d", es),
-            Span::styled(" to delete the selected entry.", ts),
-        ]),
-        Line::from(vec![
-            Span::styled("Use ", ts),
-            Span::styled("ctrl+e", es),
-            Span::styled(" to edit a shortcut description.", ts),
-        ]),
-        Line::from(vec![
-            Span::styled("Use ", ts),
-            Span::styled("ctrl+f", es),
-            Span::styled(" to switch between exact and fuzzy search.", ts),
-        ]),
-        Line::from(vec![
-            Span::styled("Use ", ts),
-            Span::styled("ctrl+h", es),
-            Span::styled(" for the help screen.", ts),
-        ]),
-        Line::from(vec![
-            Span::styled("Use ", ts),
-            Span::styled("F12", es),
-            Span::styled(" to open the configuration view.", ts),
-        ]),
-        Line::from(""),
-        Line::from(vec![Span::styled("Enter a text to filter.", ts)]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("Use ", ts),
-            Span::styled("esc", es),
-            Span::styled(" to close this window.", ts),
-        ]),
-    ])
-    .block(
-        Block::default()
-            .padding(Padding::new(1, 1, 1, 1))
-            .title(Span::styled(" cdir help ", styles.title_style))
-            .borders(Borders::ALL)
-    );
+            Line::from(vec![
+                Span::styled("tab", es),
+                Span::styled(" to switch between the views.", ts),
+            ]),
+            Line::from(vec![
+                Span::styled("enter", es),
+                Span::styled(" to exit the GUI and go into the selected directory.", ts),
+            ]),
+            Line::from(vec![
+                Span::styled("esc or ^+q", es),
+                Span::styled(" to simply exit and stay in the current directory.", ts),
+            ]),
+            Line::from(vec![
+                Span::styled("up", es),
+                Span::styled(" and ", ts),
+                Span::styled("down", es),
+                Span::styled(" arrow keys to select a directory (", ts),
+                Span::styled("shift", es),
+                Span::styled(" for bigger jumps).", ts),
+            ]),
+            Line::from(vec![
+                Span::styled("page up", es),
+                Span::styled(" and ", ts),
+                Span::styled("page down", es),
+                Span::styled(" to scroll through the list by page.", ts),
+            ]),
+            Line::from(vec![
+                Span::styled("home", es),
+                Span::styled(
+                    " to go to the most recent directory in the history (the top).",
+                    ts,
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("^a", es),
+                Span::styled(
+                    " to switch between full directory path and shortcuts usage.",
+                    ts,
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("^d", es),
+                Span::styled(" to delete the selected entry.", ts),
+            ]),
+            Line::from(vec![
+                Span::styled("^e", es),
+                Span::styled(" to edit a shortcut description.", ts),
+            ]),
+            Line::from(vec![
+                Span::styled("^f", es),
+                Span::styled(" to switch between exact and fuzzy search.", ts),
+            ]),
+            Line::from(vec![
+                Span::styled("^h", es),
+                Span::styled(" for the help screen.", ts),
+            ]),
+            Line::from(vec![
+                Span::styled("F12", es),
+                Span::styled(" to open the configuration view.", ts),
+            ]),
+            Line::from(""),
+            Line::from(vec![Span::styled("Enter a text to filter.", ts)]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("esc", es),
+                Span::styled(" to close this window.", ts),
+            ]),
+        ])
+        .block(
+            Block::default()
+                .padding(Padding::new(1, 1, 1, 1))
+                .title(Span::styled(" cdir help ", styles.title_style))
+                .borders(Borders::ALL),
+        );
 
         // Fill the frame with the background color if defined
         if let Some(bg_color) = &styles.background_color {
