@@ -85,7 +85,7 @@ impl View for HistoryViewContainer {
 
         let horizontal = Layout::horizontal([
             Constraint::Fill(1),
-            Constraint::Length(14),
+            Constraint::Length(10),
             Constraint::Length(1),
             Constraint::Length(12),
         ])

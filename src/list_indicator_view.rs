@@ -73,7 +73,7 @@ impl View for ListIndicatorView {
                 .bg(Color::Red)
                 .alignment(Alignment::Center)
         } else {
-            Paragraph::new("ctrl+h: help")
+            Paragraph::new("^h: help")
                 .style(
                     Style::default()
                         .bg(config_lock.styles.header_bg_color.unwrap())

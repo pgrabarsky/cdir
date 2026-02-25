@@ -39,11 +39,11 @@ There are three main views:
 
 1. *Help view*: Shows available commands.
 
-Use <kbd>Tab</kbd> to switch between the first two views, and <kbd>Ctrl+h</kbd> for help.
+Use <kbd>Tab</kbd> to switch between the first two views, and <kbd>^h</kbd> for help.
 
 * <kbd>Enter</kbd>: Go to selected directory
 
-* <kbd>Esc</kbd> or <kbd>Ctrl+q</kbd>: Exit and stay in the current directory
+* <kbd>Esc</kbd> or <kbd>^q</kbd>: Exit and stay in the current directory
 
 * <kbd>Up/Down</kbd>: Select directory (<kbd>Shift</kbd> for bigger jumps)
 
@@ -51,13 +51,13 @@ Use <kbd>Tab</kbd> to switch between the first two views, and <kbd>Ctrl+h</kbd> 
 
 * <kbd>Home</kbd>: Go to most recent directory (the top)
 
-* <kbd>Ctrl+a</kbd>: Show full directory path (the full path is shown instead of the shortcut names), or switch back to shortcut usage.
+* <kbd>^a</kbd>: Show full directory path (the full path is shown instead of the shortcut names), or switch back to shortcut usage.
 
-* <kbd>Ctrl+d</kbd>: Delete selected entry
+* <kbd>^d</kbd>: Delete selected entry
 
-* <kbd>Ctrl+e</kbd> (shortcuts view): Edit description
+* <kbd>^e</kbd> (shortcuts view): Edit description
 
-* <kbd>Ctrl+f</kbd> Switch between exact and fuzzy search
+* <kbd>^f</kbd> Switch between exact and fuzzy search
 
 * <kbd>F12</kbd>: Open the configuration view
 
