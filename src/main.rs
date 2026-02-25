@@ -27,7 +27,10 @@ use std::{
 
 use clap::{Parser, Subcommand};
 use config::Config;
-use expimp::load_paths_from_yaml;
+use expimp::{
+    export_path_history_to_yaml, export_paths_to_yaml, export_shortcuts_to_yaml,
+    import_path_history_from_yaml, load_paths_from_yaml,
+};
 use log::{debug, error, info};
 use ratatui::text::Text;
 use store::Store;
@@ -54,8 +57,6 @@ enum Commands {
     ConfigFile,
     /// Add a directory path
     AddPath { path: String },
-    /// Import a path file
-    ImportPaths { filename: String },
     /// Add a shortcut
     AddShortcut {
         name: String,
@@ -66,8 +67,6 @@ enum Commands {
     DeleteShortcut { name: String },
     /// Print a shortcut
     PrintShortcut { name: String },
-    /// Import a shortcuts file
-    ImportShortcuts { filename: String },
     /// Print last paths
     Lasts,
     /// Pretty print a path using shortcuts
@@ -79,6 +78,18 @@ enum Commands {
         /// if set, the maximum width of the string
         max_width: Option<u16>,
     },
+    /// Import a path file
+    ImportPaths { filename: String },
+    /// Export paths to a YAML file
+    ExportPaths { filename: String },
+    /// Import path history file
+    ImportPathHistory { filename: String },
+    /// Export path history to a YAML file
+    ExportPathHistory { filename: String },
+    /// Import a shortcuts file
+    ImportShortcuts { filename: String },
+    /// Export shortcuts to a YAML file
+    ExportShortcuts { filename: String },
 }
 
 fn initialize_logs(config_path: &Option<PathBuf>) {
@@ -150,6 +161,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Some(Commands::ImportPaths { filename }) => {
             load_paths_from_yaml(store, PathBuf::from(filename));
         }
+        Some(Commands::ImportPathHistory { filename }) => {
+            import_path_history_from_yaml(store, PathBuf::from(filename));
+        }
+        Some(Commands::ExportPaths { filename }) => {
+            export_paths_to_yaml(store, PathBuf::from(filename));
+        }
+        Some(Commands::ExportPathHistory { filename }) => {
+            export_path_history_to_yaml(store, PathBuf::from(filename));
+        }
         Some(Commands::AddShortcut {
             name,
             path,
@@ -175,6 +195,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         Some(Commands::ImportShortcuts { filename }) => {
             load_shortcuts_from_yaml(store, PathBuf::from(filename));
+        }
+        Some(Commands::ExportShortcuts { filename }) => {
+            export_shortcuts_to_yaml(store, PathBuf::from(filename));
         }
         Some(Commands::Lasts) => {
             let list = store.list_paths(0, 10, "", false).unwrap();

@@ -31,9 +31,16 @@ It is disabled by default but can be activated in the configuration file.
 
 Works with both `zsh` and `bash`. More shells may be supported in the future.
 
-## :material-check-bold: Import shortcuts
+## :material-check-bold: Data import & export
 
-Define your shortcuts in a YAML file and import them on any computer for easy setup.
+Export and import your shortcuts, current paths, and complete directory history in YAML format.
+
+Perfect for:
+
+- **Backup**: Save your navigation data
+- **Migration**: Move your setup to a new computer
+- **Sharing**: Share shortcuts with your team
+- **Version Control**: Keep your shortcuts in git with your dotfiles
 
 ## :material-check-bold: Color themes
 
