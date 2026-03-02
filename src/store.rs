@@ -396,6 +396,28 @@ impl Store {
         result1.and(result2)
     }
 
+    /// Adds a path entry directly to the paths_history table without updating current paths.
+    /// This is useful for importing historical data.
+    ///
+    /// ### Parameters
+    /// path: the file path to add
+    /// epoc: the timestamp to associate with the path (in seconds since EPOCH)
+    ///
+    /// ### Returns
+    /// Ok(()) if the operation was successful, otherwise an error
+    pub(crate) fn add_path_to_history(&self, path: &str, epoc: u64) -> Result<(), rusqlite::Error> {
+        debug!("add_path_to_history path={} epoch={}", path, epoc);
+        let mut stmt = self
+            .db_conn
+            .prepare("INSERT INTO paths_history (path, date) VALUES ((?1),(?2))")?;
+        stmt.execute([path, &format!("{}", epoc)])
+            .map_err(|e| {
+                error!("Failed to insert path '{}' time' {}: {}", path, epoc, e);
+                e
+            })
+            .map(|_l| ())
+    }
+
     /// Deletes a path from the database by its ID.
     ///
     /// ### Parameters
@@ -1218,10 +1240,84 @@ impl Store {
         };
 
         let mut shortcuts = Vec::new();
+
         for shortcut in rows {
             shortcuts.push(shortcut?);
         }
         Ok(shortcuts)
+    }
+
+    /// Lists all paths from the paths table.
+    /// The results are ordered by date (descending) and ID (descending).
+    ///
+    /// ### Returns
+    /// A vector of all Path entries from the paths table if the operation was successful, otherwise an error.
+    pub(crate) fn list_all_paths(&self) -> Result<Vec<Path>, rusqlite::Error> {
+        debug!("list_all_paths");
+        let shortcuts = self.list_all_shortcuts().unwrap_or_default();
+        let sql = String::from("SELECT id, path, date FROM paths ORDER BY date desc, id desc");
+
+        let mut stmt = match self.db_conn.prepare(sql.as_str()) {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                error!("list_all_paths failed in prepare {}: {}", sql, e);
+                return Err(e);
+            }
+        };
+
+        let rows = match stmt.query_map([], |row| {
+            let path_str: String = row.get(1)?;
+            Ok(Path::new(row.get(0)?, path_str, row.get(2)?, &shortcuts))
+        }) {
+            Ok(rows) => rows,
+            Err(e) => {
+                error!("list_all_paths failed in query_map: {}", e);
+                return Err(e);
+            }
+        };
+
+        let mut paths = Vec::new();
+        for path in rows {
+            paths.push(path?);
+        }
+        Ok(paths)
+    }
+
+    /// Lists all paths from the paths_history table.
+    /// The results are ordered by date (descending) and ID (descending).
+    ///
+    /// ### Returns
+    /// A vector of all Path entries from the paths_history table if the operation was successful, otherwise an error.
+    pub(crate) fn list_all_path_history(&self) -> Result<Vec<Path>, rusqlite::Error> {
+        debug!("list_all_path_history");
+        let shortcuts = self.list_all_shortcuts().unwrap_or_default();
+        let sql =
+            String::from("SELECT id, path, date FROM paths_history ORDER BY date desc, id desc");
+
+        let mut stmt = match self.db_conn.prepare(sql.as_str()) {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                error!("list_all_path_history failed in prepare {}: {}", sql, e);
+                return Err(e);
+            }
+        };
+
+        let rows = match stmt.query_map([], |row| {
+            let path_str: String = row.get(1)?;
+            Ok(Path::new(row.get(0)?, path_str, row.get(2)?, &shortcuts))
+        }) {
+            Ok(rows) => rows,
+            Err(e) => {
+                error!("list_all_path_history failed in query_map: {}", e);
+                return Err(e);
+            }
+        };
+
+        let mut paths = Vec::new();
+        for path in rows {
+            paths.push(path?);
+        }
+        Ok(paths)
     }
 
     /// Creates an in-memory store for testing purposes.

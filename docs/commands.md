@@ -32,17 +32,21 @@ cdir helps you to switch quickly and easily between directories
 Usage: cdir [OPTIONS] [COMMAND]
 
 Commands:
-  gui               Launch the GUI
-  config-file       Print the path to the configuration file
-  add-path          Add a directory path
-  import-paths      Import a path file
-  add-shortcut      Add a shortcut
-  delete-shortcut   Delete a shortcut
-  print-shortcut    Print a shortcut
-  import-shortcuts  Import a shortcuts file
-  lasts             Print last paths
-  pretty-print-path  Pretty print a path using shortcuts  
-  help              Print this message or the help of the given subcommand(s)
+  gui                  Launch the GUI
+  config-file          Print the path to the configuration file
+  add-path             Add a directory path
+  add-shortcut         Add a shortcut
+  delete-shortcut      Delete a shortcut
+  print-shortcut       Print a shortcut
+  lasts                Print last paths
+  pretty-print-path    Pretty print a path using shortcuts
+  import-paths         Import a path file
+  export-paths         Export paths to a YAML file
+  import-path-history  Import path history file
+  export-path-history  Export path history to a YAML file
+  import-shortcuts     Import a shortcuts file
+  export-shortcuts     Export shortcuts to a YAML file
+  help                 Print this message or the help of the given subcommand(s)
 
 Options:
   -c, --config-file <config_file>  Path to the configuration file
@@ -50,8 +54,8 @@ Options:
   -V, --version                    Print version
 ```
 
-You can report to the following sections of for more details:
+You can refer to the following sections for more details:
 
-* `import-paths` [Importing Shortcuts](importing_shortcuts.md)
+* Import/Export commands: [Data Import & Export](importing_shortcuts.md)
 
-* `pretty-print-path` [Shell promp](prompt.md)
+* `pretty-print-path`: [Shell prompt](prompt.md)

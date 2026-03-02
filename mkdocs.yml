@@ -7,7 +7,7 @@ nav:
   - GUI: gui.md
   - Installation: installation.md
   - Configuration: configuration.md
-  - Importing Shortcuts: importing_shortcuts.md
+  - Data Import & Export: import_export.md
   - Shell promp: prompt.md
   - License: license.md
 theme:
